@@ -396,6 +396,9 @@ namespace PlayerbotsConfEditor
 
         private List<ConfigChoice> BuildChoices(ConfigOption option)
         {
+            if (IsFreeNumericOption(option))
+                return new List<ConfigChoice>();
+
             var choices = ExtractExplicitChoices(option.Description);
 
             if (IsYesNoValue(option.OriginalValue))
@@ -419,6 +422,11 @@ namespace PlayerbotsConfEditor
                 .OrderBy(c => ChoiceSortKey(c.Value))
                 .ThenBy(c => c.Value, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+        }
+
+        private static bool IsFreeNumericOption(ConfigOption option)
+        {
+            return string.Equals(option.Name, "AiPlayerbot.BotActiveAlone", StringComparison.Ordinal);
         }
 
         private List<ConfigChoice> ExtractExplicitChoices(string description)
