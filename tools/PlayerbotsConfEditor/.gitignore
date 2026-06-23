@@ -1,0 +1,25 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio local state
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Test and coverage output
+TestResults/
+*.coverage
+*.coveragexml
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+~$*
+
+# NuGet packages and generated artifacts
+packages/
+*.nupkg
