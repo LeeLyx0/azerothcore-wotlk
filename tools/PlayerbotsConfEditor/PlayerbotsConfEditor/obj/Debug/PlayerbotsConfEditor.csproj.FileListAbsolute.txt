@@ -1,0 +1,9 @@
+C:\Users\lford\source\repos\AzerothCore\tools\PlayerbotsConfEditor\PlayerbotsConfEditor\bin\Debug\PlayerbotsConfEditor.exe.config
+C:\Users\lford\source\repos\AzerothCore\tools\PlayerbotsConfEditor\PlayerbotsConfEditor\bin\Debug\PlayerbotsConfEditor.exe
+C:\Users\lford\source\repos\AzerothCore\tools\PlayerbotsConfEditor\PlayerbotsConfEditor\bin\Debug\PlayerbotsConfEditor.pdb
+C:\Users\lford\source\repos\AzerothCore\tools\PlayerbotsConfEditor\PlayerbotsConfEditor\obj\Debug\PlayerbotsConfEditor.csproj.AssemblyReference.cache
+C:\Users\lford\source\repos\AzerothCore\tools\PlayerbotsConfEditor\PlayerbotsConfEditor\obj\Debug\PlayerbotsConfEditor.Properties.Resources.resources
+C:\Users\lford\source\repos\AzerothCore\tools\PlayerbotsConfEditor\PlayerbotsConfEditor\obj\Debug\PlayerbotsConfEditor.csproj.GenerateResource.cache
+C:\Users\lford\source\repos\AzerothCore\tools\PlayerbotsConfEditor\PlayerbotsConfEditor\obj\Debug\PlayerbotsConfEditor.csproj.CoreCompileInputs.cache
+C:\Users\lford\source\repos\AzerothCore\tools\PlayerbotsConfEditor\PlayerbotsConfEditor\obj\Debug\PlayerbotsConfEditor.exe
+C:\Users\lford\source\repos\AzerothCore\tools\PlayerbotsConfEditor\PlayerbotsConfEditor\obj\Debug\PlayerbotsConfEditor.pdb
