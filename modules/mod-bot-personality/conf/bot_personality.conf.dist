@@ -1,0 +1,24 @@
+##################################################
+# BOT PERSONALITY CONFIGURATION                  #
+##################################################
+
+# Enable the Phase 1 bot personality system.
+# Default: 1
+BotPersonality.Enable = 1
+
+# Generate or load a persistent personality when a Playerbot enters the world.
+# Default: 1
+BotPersonality.GenerateOnLogin = 1
+
+# Save newly generated personalities to the characters database.
+# Default: 1
+BotPersonality.SaveGenerated = 1
+
+# Enable extra diagnostic logging for personality cache/load behavior.
+# Default: 0
+BotPersonality.DebugLogging = 0
+
+# Maximum deterministic random variation applied to each trait.
+# Valid range: 0-40
+# Default: 15
+BotPersonality.Variation = 15

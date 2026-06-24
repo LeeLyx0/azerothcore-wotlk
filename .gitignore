@@ -118,3 +118,5 @@ local.properties
 # ==================
 .cache
 compile_commands.json
+!/modules/mod-bot-personality/
+!/modules/mod-bot-personality/**
