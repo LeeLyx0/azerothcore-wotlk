@@ -22,3 +22,102 @@ BotPersonality.DebugLogging = 0
 # Valid range: 0-40
 # Default: 15
 BotPersonality.Variation = 15
+
+##################################################
+# BOT PERSONALITY CHAT CONFIGURATION             #
+##################################################
+
+# Enable Phase 2 template-based personality chat.
+# Default: 1
+BotPersonality.Chat.Enable = 1
+
+# Allow Playerbots to answer eligible direct whispers from real players.
+# Phase 2 does not proactively speak in party, raid, say, yell, guild, or BG.
+# Default: 1
+BotPersonality.Chat.RespondToWhispers = 1
+
+# Allow low-probability responses for messages with no recognized intent.
+# Default: 1
+BotPersonality.Chat.RespondToUnknown = 1
+
+# Force eligible responses to 100% for debugging.
+# Default: 0
+BotPersonality.Chat.ForceResponseForDebug = 0
+
+# Per bot/player pair cooldown in milliseconds.
+# Valid range: 0-600000
+# Default: 5000
+BotPersonality.Chat.PairCooldownMs = 5000
+
+# Per bot global chat cooldown in milliseconds.
+# Valid range: 0-600000
+# Default: 2000
+BotPersonality.Chat.BotCooldownMs = 2000
+
+# Suppress duplicate messages from the same player to the same bot.
+# Valid range: 0-600000
+# Default: 15000
+BotPersonality.Chat.DuplicateWindowMs = 15000
+
+# Maximum successful responses per bot in a rolling one-minute window.
+# Valid range: 1-60
+# Default: 8
+BotPersonality.Chat.MaxResponsesPerMinute = 8
+
+# Maximum input length considered by personality chat.
+# Valid range: 1-255
+# Default: 255
+BotPersonality.Chat.MaxInputLength = 255
+
+# Maximum output length sent by personality chat.
+# Valid range: 1-255
+# Default: 255
+BotPersonality.Chat.MaxOutputLength = 255
+
+# Minimum response chances for important recognized intents.
+# Valid range: 0-100
+BotPersonality.Chat.MinimumGreetingChance = 70
+BotPersonality.Chat.MinimumHelpChance = 85
+BotPersonality.Chat.MinimumIdentityChance = 85
+BotPersonality.Chat.MinimumThanksChance = 50
+BotPersonality.Chat.MinimumInsultChance = 40
+
+# Response chance for unknown messages when unknown responses are enabled.
+# Valid range: 0-100
+# Default: 25
+BotPersonality.Chat.UnknownChance = 25
+
+# Add a human-like delay before bot whisper replies are sent.
+# This only delays the reply; the WoW 3.3.5a client has no typing indicator.
+# Default: 1
+BotPersonality.Chat.ReplyDelay.Enable = 1
+
+# Base reply delay in milliseconds.
+# Valid range: 0-60000
+# Default: 700
+BotPersonality.Chat.ReplyDelay.BaseMs = 700
+
+# Extra delay per input character, simulating reading time.
+# Valid range: 0-250
+# Default: 8
+BotPersonality.Chat.ReplyDelay.InputCharMs = 8
+
+# Extra delay per output character, simulating typing time.
+# Valid range: 0-250
+# Default: 45
+BotPersonality.Chat.ReplyDelay.OutputCharMs = 45
+
+# Random delay added to each reply in milliseconds.
+# Valid range: 0-60000
+# Default: 1200
+BotPersonality.Chat.ReplyDelay.RandomMs = 1200
+
+# Maximum reply delay in milliseconds. Set to 0 for no cap.
+# Valid range: 0-60000
+# Default: 10000
+BotPersonality.Chat.ReplyDelay.MaxMs = 10000
+
+# Enable extra diagnostics for chat validation, intent, cooldowns, and sending.
+# Message contents are redacted from logs.
+# Default: 0
+BotPersonality.Chat.DebugLogging = 0

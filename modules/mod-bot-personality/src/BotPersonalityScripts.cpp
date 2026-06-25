@@ -1,5 +1,6 @@
 #include "BotPersonalityMgr.h"
 
+#include "BotDialogueMgr.h"
 #include "Log.h"
 #include "Player.h"
 #include "PlayerScript.h"
@@ -14,7 +15,8 @@ public:
               "BotPersonalityWorldScript",
               {
                   WORLDHOOK_ON_BEFORE_WORLD_INITIALIZED,
-                  WORLDHOOK_ON_AFTER_CONFIG_LOAD
+                  WORLDHOOK_ON_AFTER_CONFIG_LOAD,
+                  WORLDHOOK_ON_UPDATE
               })
     {
     }
@@ -22,11 +24,18 @@ public:
     void OnBeforeWorldInitialized() override
     {
         sBotPersonalityMgr.LoadConfig(false);
+        sBotDialogueMgr.LoadConfig(false);
     }
 
     void OnAfterConfigLoad(bool reload) override
     {
         sBotPersonalityMgr.LoadConfig(reload);
+        sBotDialogueMgr.LoadConfig(reload);
+    }
+
+    void OnUpdate(uint32 diff) override
+    {
+        sBotDialogueMgr.Update(diff);
     }
 };
 
@@ -68,6 +77,7 @@ public:
     }
 };
 
+void AddBotPersonalityChatScripts();
 void AddBotPersonalityCommands();
 
 void AddBotPersonalityScripts()
@@ -75,5 +85,6 @@ void AddBotPersonalityScripts()
     new BotPersonalityWorldScript();
     new BotPersonalityPlayerScript();
     new BotPersonalityPlayerbotScript();
+    AddBotPersonalityChatScripts();
     AddBotPersonalityCommands();
 }

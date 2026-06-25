@@ -1,5 +1,6 @@
 #include "BotPersonalityMgr.h"
 
+#include "BotDialogueMgr.h"
 #include "CharacterCache.h"
 #include "Chat.h"
 #include "CommandScript.h"
@@ -10,7 +11,9 @@
 #include "StringFormat.h"
 #include "Util.h"
 
+#include <algorithm>
 #include <charconv>
+#include <cctype>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -97,6 +100,44 @@ Player* FindOnlineCharacter(ChatHandler* handler, std::string botName)
     return bot;
 }
 
+Player* FindOnlineRealPlayer(ChatHandler* handler, std::string playerName)
+{
+    if (playerName.empty())
+    {
+        Send(handler, "Player name is required.");
+        return nullptr;
+    }
+
+    if (!normalizePlayerName(playerName))
+    {
+        Send(handler, "Invalid character name '{}'.", playerName);
+        return nullptr;
+    }
+
+    ObjectGuid const guid = sCharacterCache->GetCharacterGuidByName(
+        playerName);
+    if (guid.IsEmpty())
+    {
+        Send(handler, "Character '{}' was not found.", playerName);
+        return nullptr;
+    }
+
+    Player* player = ObjectAccessor::FindConnectedPlayer(guid);
+    if (!player)
+    {
+        Send(handler, "Character '{}' is not online.", playerName);
+        return nullptr;
+    }
+
+    if (sBotPersonalityMgr.IsPlayerbot(player))
+    {
+        Send(handler, "Character '{}' is a Playerbot.", playerName);
+        return nullptr;
+    }
+
+    return player;
+}
+
 int32 TraitValue(BotPersonality const& personality, std::string const& trait)
 {
     if (trait == "friendliness")
@@ -171,6 +212,61 @@ void SendRootUsage(ChatHandler* handler)
         "Usage: .botpersonality archetype <botName> <archetype> [reset]");
     Send(handler, "Usage: .botpersonality reload <botName>");
     Send(handler, "Usage: .botpersonality clearcache");
+    Send(handler, "Usage: .botpersonality chat");
+}
+
+void SendChatUsage(ChatHandler* handler)
+{
+    Send(handler, "Usage: .botpersonality chat test <botName> <intent> [send]");
+    Send(handler, "Usage: .botpersonality chat parse <message>");
+    Send(handler, "Usage: .botpersonality chat cooldowns");
+    Send(handler, "Usage: .botpersonality chat clearcooldowns");
+    Send(handler, "Usage: .botpersonality chat force <botName> <playerName> <intent>");
+}
+
+std::string TrimArgs(char const* args)
+{
+    std::string text(args ? args : "");
+
+    auto isSpace = [](unsigned char c)
+    {
+        return std::isspace(c) != 0;
+    };
+
+    auto begin = std::find_if_not(text.begin(), text.end(), isSpace);
+    auto end = std::find_if_not(text.rbegin(), text.rend(), isSpace).base();
+
+    if (begin >= end)
+        return {};
+
+    return std::string(begin, end);
+}
+
+bool ParseIntentArg(
+    ChatHandler* handler,
+    std::string const& text,
+    BotChatIntent& intent)
+{
+    if (BotChatIntentFromString(text, intent))
+        return true;
+
+    Send(handler, "Invalid intent '{}'.", text);
+    Send(
+        handler,
+        "Supported intents: greeting, farewell, thanks, praise, apology, "
+        "insult, help, identity, wellbeing, agreement, disagreement, "
+        "unknown.");
+    return false;
+}
+
+void SendDialogueDebugResult(
+    ChatHandler* handler,
+    BotDialogueDebugResult const& result)
+{
+    Send(handler, "Bot: {}", result.context.botName);
+    Send(handler, "Intent: {}", BotChatIntentToString(result.context.intent));
+    Send(handler, "Tone: {}", BotResponseToneToString(result.context.tone));
+    Send(handler, "Response: {}", result.response);
 }
 }
 
@@ -207,6 +303,7 @@ public:
                 SEC_ADMINISTRATOR,
                 Console::Yes
             },
+            { "chat", GetChatCommandTable() },
             { "", HandleHelpCommand, SEC_GAMEMASTER, Console::Yes }
         };
 
@@ -218,9 +315,42 @@ public:
         return commandTable;
     }
 
+    static ChatCommandTable const& GetChatCommandTable()
+    {
+        static ChatCommandTable chatCommandTable =
+        {
+            { "test", HandleChatTestCommand, SEC_GAMEMASTER, Console::Yes },
+            { "parse", HandleChatParseCommand, SEC_GAMEMASTER, Console::Yes },
+            {
+                "cooldowns",
+                HandleChatCooldownsCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "clearcooldowns",
+                HandleChatClearCooldownsCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            { "force", HandleChatForceCommand, SEC_GAMEMASTER, Console::No },
+            { "", HandleChatHelpCommand, SEC_GAMEMASTER, Console::Yes }
+        };
+
+        return chatCommandTable;
+    }
+
     static bool HandleHelpCommand(ChatHandler* handler, char const* /*args*/)
     {
         SendRootUsage(handler);
+        return true;
+    }
+
+    static bool HandleChatHelpCommand(
+        ChatHandler* handler,
+        char const* /*args*/)
+    {
+        SendChatUsage(handler);
         return true;
     }
 
@@ -465,6 +595,168 @@ public:
 
         sBotPersonalityMgr.ClearCache();
         Send(handler, "Bot Personality cache cleared.");
+        return true;
+    }
+
+    static bool HandleChatTestCommand(ChatHandler* handler, char const* args)
+    {
+        if (!sBotPersonalityMgr.IsEnabled())
+        {
+            Send(handler, "Bot Personality module is disabled.");
+            return true;
+        }
+
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() < 2 || tokens.size() > 3)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality chat test <botName> <intent> [send]");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        BotChatIntent intent;
+        if (!ParseIntentArg(handler, tokens[1], intent))
+            return false;
+
+        bool sendWhisper = false;
+        if (tokens.size() == 3)
+        {
+            std::string option = BotPersonalityToLower(tokens[2]);
+            if (option != "send")
+            {
+                Send(handler, "Optional third argument must be 'send'.");
+                return false;
+            }
+
+            sendWhisper = true;
+        }
+
+        Player* player = handler->GetPlayer();
+        if (sendWhisper && !player)
+        {
+            Send(handler, "The send option requires an in-game GM.");
+            return true;
+        }
+
+        BotDialogueDebugResult result = sendWhisper ?
+            sBotDialogueMgr.ForceWhisper(bot, player, intent) :
+            sBotDialogueMgr.GenerateDebugResponse(bot, player, intent);
+
+        if (!result.success)
+        {
+            Send(handler, result.error.empty() ?
+                "Unable to generate chat response." :
+                result.error);
+            return true;
+        }
+
+        SendDialogueDebugResult(handler, result);
+        return true;
+    }
+
+    static bool HandleChatParseCommand(ChatHandler* handler, char const* args)
+    {
+        std::string const message = TrimArgs(args);
+        if (message.empty())
+        {
+            Send(handler, "Usage: .botpersonality chat parse <message>");
+            return false;
+        }
+
+        std::string const normalized = sBotDialogueMgr.NormalizeMessage(
+            message);
+        BotChatIntent const intent = sBotDialogueMgr.ParseIntent(message);
+
+        Send(handler, "Normalized: {}", normalized);
+        Send(handler, "Intent: {}", BotChatIntentToString(intent));
+        return true;
+    }
+
+    static bool HandleChatCooldownsCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality chat cooldowns");
+            return false;
+        }
+
+        BotDialogueCooldownStats const stats =
+            sBotDialogueMgr.GetCooldownStats();
+
+        Send(
+            handler,
+            "Pair cooldown entries: {}",
+            stats.pairCooldownEntries);
+        Send(handler, "Bot cooldown entries: {}", stats.botCooldownEntries);
+        Send(
+            handler,
+            "Duplicate-message entries: {}",
+            stats.duplicateEntries);
+        Send(handler, "Rate-window entries: {}", stats.rateWindowEntries);
+        Send(
+            handler,
+            "Recent-response entries: {}",
+            stats.recentResponseEntries);
+        return true;
+    }
+
+    static bool HandleChatClearCooldownsCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality chat clearcooldowns");
+            return false;
+        }
+
+        sBotDialogueMgr.ClearChatState();
+        Send(handler, "Bot Personality chat cooldowns cleared.");
+        return true;
+    }
+
+    static bool HandleChatForceCommand(ChatHandler* handler, char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 3)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality chat force <botName> <playerName> "
+                "<intent>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        Player* player = FindOnlineRealPlayer(handler, tokens[1]);
+        if (!player)
+            return true;
+
+        BotChatIntent intent;
+        if (!ParseIntentArg(handler, tokens[2], intent))
+            return false;
+
+        BotDialogueDebugResult result =
+            sBotDialogueMgr.ForceWhisper(bot, player, intent);
+        if (!result.success)
+        {
+            Send(handler, result.error.empty() ?
+                "Unable to send chat response." :
+                result.error);
+            return true;
+        }
+
+        SendDialogueDebugResult(handler, result);
         return true;
     }
 };
