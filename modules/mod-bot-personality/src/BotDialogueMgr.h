@@ -106,6 +106,7 @@ private:
     {
         uint32 messageHash = 0;
         uint32 lastSeenMs = 0;
+        uint32 duplicateCount = 0;
     };
 
     struct PendingReply
@@ -129,6 +130,10 @@ private:
         Player* bot,
         std::string const& message,
         std::optional<BotChatIntent> forcedIntent);
+    void ApplyRelationshipContext(
+        BotDialogueContext& context,
+        Player* bot,
+        Player* sender) const;
 
     bool IsEligibleWhisper(
         Player* sender,
@@ -142,7 +147,8 @@ private:
         uint32 botGuid,
         uint32 playerGuid,
         std::string const& normalized,
-        uint32 nowMs);
+        uint32 nowMs,
+        bool& repeatedSpam);
     bool ShouldSuppressCooldowns(
         uint32 botGuid,
         uint32 playerGuid,

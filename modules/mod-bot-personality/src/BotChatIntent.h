@@ -2,6 +2,7 @@
 #define MOD_BOT_PERSONALITY_BOT_CHAT_INTENT_H
 
 #include "BotPersonality.h"
+#include "BotRelationship.h"
 #include "Define.h"
 
 #include <string>
@@ -44,5 +45,10 @@ BotChatIntent ParseBotChatIntent(std::string const& text);
 BotResponseTone DetermineBotResponseTone(
     BotPersonality const& personality,
     BotChatIntent intent);
+BotResponseTone DetermineBotResponseTone(
+    BotPersonality const& personality,
+    BotChatIntent intent,
+    BotRelationship const& relationship,
+    BotRelationshipLevel relationshipLevel);
 
 #endif

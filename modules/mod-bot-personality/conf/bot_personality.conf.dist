@@ -24,6 +24,80 @@ BotPersonality.DebugLogging = 0
 BotPersonality.Variation = 15
 
 ##################################################
+# BOT PERSONALITY RELATIONSHIP CONFIGURATION     #
+##################################################
+
+# Enable persistent per-bot/per-player relationships.
+# Default: 1
+BotPersonality.Relationship.Enable = 1
+
+# Allow accepted chat interactions to update relationships.
+# Default: 1
+BotPersonality.Relationship.UpdateFromChat = 1
+
+# Enable extra diagnostics for relationship cache, deltas, saves, and caps.
+# Default: 0
+BotPersonality.Relationship.DebugLogging = 0
+
+# Relationship value range.
+# Defaults: -1000 and 1000
+BotPersonality.Relationship.Minimum = -1000
+BotPersonality.Relationship.Maximum = 1000
+
+# Dirty relationship save interval in seconds.
+# Valid range: 5-3600
+# Default: 60
+BotPersonality.Relationship.SaveIntervalSeconds = 60
+
+# Relationship cache expiry and maximum cached bot/player pairs.
+# Valid ranges: 1-1440 minutes, 100-100000 entries
+BotPersonality.Relationship.CacheExpiryMinutes = 30
+BotPersonality.Relationship.MaxCachedEntries = 10000
+
+# Diminishing returns for repeated relationship events.
+# Valid ranges: 0-86400 seconds, 0-100 percent
+BotPersonality.Relationship.RepeatWindowSeconds = 600
+BotPersonality.Relationship.SecondRepeatPercent = 50
+BotPersonality.Relationship.ThirdRepeatPercent = 25
+BotPersonality.Relationship.FurtherRepeatPercent = 0
+
+# Rolling in-memory 24-hour caps per bot/player pair.
+# Server restart resets these caps, but persisted relationships remain.
+# Valid range: 0-10000
+BotPersonality.Relationship.MaxPositiveChatGainPerDay = 20
+BotPersonality.Relationship.MaxNegativeChatLossPerDay = 40
+BotPersonality.Relationship.MaxFamiliarityGainPerDay = 30
+
+# Base chat event effects. Personality may scale these bounded deltas.
+# Valid range for each value: -100 to 100
+BotPersonality.Relationship.GreetingAffinity = 1
+BotPersonality.Relationship.GreetingFamiliarity = 2
+
+BotPersonality.Relationship.ThanksAffinity = 2
+BotPersonality.Relationship.ThanksTrust = 1
+BotPersonality.Relationship.ThanksFamiliarity = 1
+
+BotPersonality.Relationship.PraiseAffinity = 2
+BotPersonality.Relationship.PraiseRespect = 1
+BotPersonality.Relationship.PraiseFamiliarity = 1
+
+BotPersonality.Relationship.ApologyAffinity = 1
+BotPersonality.Relationship.ApologyTrust = 2
+BotPersonality.Relationship.ApologyFamiliarity = 1
+
+BotPersonality.Relationship.InsultAffinity = -5
+BotPersonality.Relationship.InsultTrust = -2
+BotPersonality.Relationship.InsultRespect = -1
+BotPersonality.Relationship.InsultFamiliarity = 1
+
+BotPersonality.Relationship.HelpFamiliarity = 1
+BotPersonality.Relationship.ConversationFamiliarity = 1
+
+BotPersonality.Relationship.SpamAffinity = -2
+BotPersonality.Relationship.SpamTrust = -1
+BotPersonality.Relationship.SpamRespect = -1
+
+##################################################
 # BOT PERSONALITY CHAT CONFIGURATION             #
 ##################################################
 

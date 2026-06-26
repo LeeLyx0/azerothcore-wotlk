@@ -523,3 +523,78 @@ BotResponseTone DetermineBotResponseTone(
 
     return BotResponseTone::Neutral;
 }
+
+BotResponseTone DetermineBotResponseTone(
+    BotPersonality const& personality,
+    BotChatIntent intent,
+    BotRelationship const& relationship,
+    BotRelationshipLevel relationshipLevel)
+{
+    BotResponseTone tone = DetermineBotResponseTone(personality, intent);
+
+    bool const highAffinity =
+        relationshipLevel == BotRelationshipLevel::Friendly ||
+        relationshipLevel == BotRelationshipLevel::Trusted ||
+        relationshipLevel == BotRelationshipLevel::Loyal;
+    bool const lowAffinity =
+        relationshipLevel == BotRelationshipLevel::Hostile ||
+        relationshipLevel == BotRelationshipLevel::Disliked ||
+        relationshipLevel == BotRelationshipLevel::Wary;
+
+    if (highAffinity)
+    {
+        if (tone == BotResponseTone::Cold)
+            tone = BotResponseTone::Neutral;
+        else if (tone == BotResponseTone::Arrogant &&
+                 relationship.affinity >= 400)
+            tone = BotResponseTone::Neutral;
+        else if (tone == BotResponseTone::Sarcastic &&
+                 relationship.affinity >= 400)
+            tone = BotResponseTone::Warm;
+        else if (tone == BotResponseTone::Neutral &&
+                 relationship.affinity >= 700)
+            tone = BotResponseTone::Warm;
+    }
+
+    if (lowAffinity)
+    {
+        if (tone == BotResponseTone::Enthusiastic)
+            tone = BotResponseTone::Neutral;
+        else if (tone == BotResponseTone::Warm)
+            tone = BotResponseTone::Neutral;
+
+        if (relationship.affinity <= -300 &&
+            tone == BotResponseTone::Neutral)
+            tone = BotResponseTone::Cold;
+
+        if (personality.archetype == BotPersonalityArchetype::Nervous &&
+            relationship.affinity <= -300)
+            tone = BotResponseTone::Nervous;
+    }
+
+    if (relationship.trust >= 300 &&
+        (intent == BotChatIntent::Apology ||
+            intent == BotChatIntent::HelpRequest ||
+            intent == BotChatIntent::WellbeingQuestion) &&
+        tone == BotResponseTone::Neutral)
+        tone = BotResponseTone::Warm;
+
+    if (relationship.trust <= -300 &&
+        (intent == BotChatIntent::Apology ||
+            intent == BotChatIntent::HelpRequest) &&
+        tone == BotResponseTone::Warm)
+        tone = BotResponseTone::Neutral;
+
+    if (relationship.respect <= -300 &&
+        (personality.archetype == BotPersonalityArchetype::Arrogant ||
+            personality.archetype == BotPersonalityArchetype::Competitive) &&
+        tone == BotResponseTone::Neutral)
+        tone = BotResponseTone::Arrogant;
+
+    if (relationship.respect >= 300 &&
+        personality.archetype == BotPersonalityArchetype::Competitive &&
+        tone == BotResponseTone::Cold)
+        tone = BotResponseTone::Neutral;
+
+    return tone;
+}

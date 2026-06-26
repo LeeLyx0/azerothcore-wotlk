@@ -1,14 +1,16 @@
 # mod-bot-personality
 
-Persistent Playerbot personality and template dialogue for AzerothCore.
+Persistent Playerbot personality, relationship memory, and template dialogue
+for AzerothCore.
 
 Phase 1 gives each online Playerbot a deterministic, persisted personality
 record. Phase 2 adds a small template-based direct-whisper response system
-driven by the bot's existing traits and archetype.
+driven by the bot's existing traits and archetype. Phase 3 adds persistent,
+independent relationships between each Playerbot and each real player.
 
-The module still does not implement mood, relationships, affinity, long-term
-memory, combat reactions, party banter, LLM integration, HTTP calls, external
-APIs, background workers, or free-form language generation.
+The module still does not implement mood, combat reactions, party banter, LLM
+integration, HTTP calls, external APIs, background workers, or free-form
+language generation.
 
 ## Installation
 
@@ -35,6 +37,25 @@ CREATE TABLE IF NOT EXISTS `bot_personality` (
     `talkativeness` TINYINT NOT NULL DEFAULT 0,
     `speech_style` TINYINT UNSIGNED NOT NULL DEFAULT 0,
     PRIMARY KEY (`bot_guid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+```
+
+Phase 3 adds a second characters-database table:
+
+```sql
+CREATE TABLE IF NOT EXISTS `bot_relationship` (
+    `bot_guid` INT UNSIGNED NOT NULL,
+    `player_guid` INT UNSIGNED NOT NULL,
+    `affinity` SMALLINT NOT NULL DEFAULT 0,
+    `trust` SMALLINT NOT NULL DEFAULT 0,
+    `respect` SMALLINT NOT NULL DEFAULT 0,
+    `familiarity` SMALLINT NOT NULL DEFAULT 0,
+    `positive_interactions` INT UNSIGNED NOT NULL DEFAULT 0,
+    `negative_interactions` INT UNSIGNED NOT NULL DEFAULT 0,
+    `first_interaction` INT UNSIGNED NOT NULL DEFAULT 0,
+    `last_interaction` INT UNSIGNED NOT NULL DEFAULT 0,
+    PRIMARY KEY (`bot_guid`, `player_guid`),
+    INDEX `idx_player_guid` (`player_guid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 ```
 
@@ -75,7 +96,28 @@ Phase 2 chat options:
 - `BotPersonality.Chat.MinimumThanksChance`: minimum thanks chance.
 - `BotPersonality.Chat.MinimumInsultChance`: minimum insult-response chance.
 - `BotPersonality.Chat.UnknownChance`: chance for unknown-intent replies.
+- `BotPersonality.Chat.ReplyDelay.*`: simulated read/typing delay before
+  replies.
 - `BotPersonality.Chat.DebugLogging`: redacted chat diagnostics.
+
+Phase 3 relationship options:
+
+- `BotPersonality.Relationship.Enable`: enables persistent relationships.
+- `BotPersonality.Relationship.UpdateFromChat`: enables chat-driven changes.
+- `BotPersonality.Relationship.DebugLogging`: relationship diagnostics.
+- `BotPersonality.Relationship.Minimum` and `.Maximum`: value clamp range.
+- `BotPersonality.Relationship.SaveIntervalSeconds`: dirty save interval.
+- `BotPersonality.Relationship.CacheExpiryMinutes`: idle cache expiry.
+- `BotPersonality.Relationship.MaxCachedEntries`: cache size limit.
+- `BotPersonality.Relationship.RepeatWindowSeconds`: repeat window.
+- `BotPersonality.Relationship.SecondRepeatPercent`: second repeat scaling.
+- `BotPersonality.Relationship.ThirdRepeatPercent`: third repeat scaling.
+- `BotPersonality.Relationship.FurtherRepeatPercent`: later repeat scaling.
+- `BotPersonality.Relationship.MaxPositiveChatGainPerDay`: positive cap.
+- `BotPersonality.Relationship.MaxNegativeChatLossPerDay`: negative cap.
+- `BotPersonality.Relationship.MaxFamiliarityGainPerDay`: familiarity cap.
+- `BotPersonality.Relationship.*Affinity`, `*Trust`, `*Respect`, and
+  `*Familiarity`: base event deltas.
 
 ## Commands
 
@@ -93,6 +135,14 @@ All commands require GM access unless noted.
 .botpersonality chat cooldowns
 .botpersonality chat clearcooldowns
 .botpersonality chat force <botName> <playerName> <intent>
+.botpersonality relationship show <botName> <playerName>
+.botpersonality relationship set <botName> <playerName> <field> <value>
+.botpersonality relationship adjust <botName> <playerName> <field> <amount>
+.botpersonality relationship reset <botName> <playerName>
+.botpersonality relationship reload <botName> <playerName>
+.botpersonality relationship list <botName> [limit]
+.botpersonality relationship save
+.botpersonality relationship clearcache
 ```
 
 `clearcache` requires administrator access. Commands support online bots. Real
@@ -103,7 +153,14 @@ template provider. It only sends a whisper when the explicit `send` argument is
 present. `chat force` sends one test whisper to an explicit online real player
 target and bypasses response probability, but still validates bot/player
 targets. `chat clearcooldowns` clears only in-memory chat cooldowns,
-duplicate records, rate windows, and recent response history.
+duplicate records, rate windows, pending delayed replies, and recent response
+history.
+
+`relationship show` does not create a missing row. `relationship set` and
+`relationship adjust` are explicit GM edits and may create a neutral row before
+saving the requested value. `relationship reset` deletes only the selected
+bot/player relationship. `relationship clearcache` saves dirty relationship
+entries and clears only relationship cache and transient anti-farming state.
 
 ## Traits
 
@@ -181,6 +238,99 @@ Intent can adjust the result. Apologies soften sarcastic and arrogant bots,
 insults make nervous bots defensive, and praise can make arrogant bots answer
 more sharply.
 
+## Phase 3 Relationships
+
+Relationships are separate from personality. Personality describes who the bot
+is; relationship describes how that bot currently feels about one real player.
+
+Each relationship stores:
+
+- affinity: general like or dislike;
+- trust: whether the player seems reliable and sincere;
+- respect: whether the player seems competent or worthy;
+- familiarity: how much shared interaction the bot remembers;
+- positive and negative interaction counters;
+- first and last interaction timestamps.
+
+Values default to `-1000` through `1000` and are clamped by configuration.
+The main relationship level is derived from affinity:
+
+- Hostile: `-1000` to `-601`
+- Disliked: `-600` to `-301`
+- Wary: `-300` to `-101`
+- Neutral: `-100` to `149`
+- Friendly: `150` to `399`
+- Trusted: `400` to `699`
+- Loyal: `700` to `1000`
+
+Chat intent maps to relationship events:
+
+- Greeting -> Greeting
+- Thanks -> Thanks
+- Praise -> Praise
+- Apology -> Apology
+- Insult -> Insult
+- HelpRequest -> HelpRequest
+- Farewell, identity, wellbeing, agreement, and disagreement -> Conversation
+- Unknown -> Conversation only when a reply is actually generated
+- repeated exact duplicate spam -> RepeatedSpam
+
+Base deltas are centralized in config. Personality then applies bounded
+scaling: friendliness improves positive affinity gains, patience and humour
+soften insults, low patience sharpens penalties, nervous bots react more to
+insults and apologies, helpful bots appreciate thanks more, and arrogant bots
+gain less affinity but more respect from praise.
+
+Repeated events are tracked per bot/player pair in memory. Within the repeat
+window, the first event receives full effect, the second uses the configured
+second-repeat percent, the third uses the third-repeat percent, and later
+positive repeats use the further-repeat percent. Negative insults and spam keep
+at least half effect so repeated abuse cannot avoid consequences entirely.
+
+Rolling in-memory 24-hour caps limit positive affinity/trust/respect gains,
+negative affinity/trust/respect losses, and familiarity gains per bot/player
+pair. These caps reset on worldserver restart; the relationship values
+themselves persist in the characters database.
+
+Dirty relationships are cached and batch-saved on the configured interval,
+clean shutdown, selected player/bot logout, explicit GM save, cache clear, and
+cache eviction. Cache entries expire after the configured idle time and are
+bounded by `MaxCachedEntries`. Dirty entries are saved before eviction.
+
+## Dialogue Integration
+
+The whisper pipeline is:
+
+```text
+validate real-player sender and Playerbot recipient
+reject addon, empty, invalid, or Playerbots command messages
+parse intent and suppress exact duplicate farming
+apply one relationship event for accepted conversational input
+copy relationship data into the dialogue context
+choose tone from personality, intent, and relationship
+select relationship-aware templates with normal template fallback
+apply existing response chance, cooldowns, and delayed whisper sending
+```
+
+Relationship templates use broad negative, neutral, positive, and loyal bands
+instead of every possible intent/tone/level combination. If no relationship
+template matches, Phase 2 personality-only templates remain the fallback.
+
+## Manual Relationship Test
+
+Use one bot and two online real players:
+
+```text
+1. .botpersonality relationship set BotName PlayerA affinity 400
+2. .botpersonality relationship set BotName PlayerB affinity -400
+3. Whisper "hello" from PlayerA to BotName.
+4. Whisper "hello" from PlayerB to BotName.
+5. Compare warm/positive wording against guarded/negative wording.
+6. Restart worldserver.
+7. Repeat both whispers.
+8. Confirm .botpersonality relationship show preserved both rows.
+```
+
 ## Command Compatibility
 
 Existing Playerbots commands remain owned by `mod-playerbots`. The chat hook
@@ -216,8 +366,10 @@ and response text only; they do not hold raw `Player*` pointers.
 
 ## Limitations
 
-Phase 2 is intentionally template-only. It does not call external services, run
-background threads, execute SQL from chat, issue Playerbots commands, change AI
-state, track relationships, store chat history, model mood, react to combat, or
-generate free-form text. Help-request replies are conversational only; actual
-bot control still requires normal Playerbots commands.
+Phase 3 is still intentionally template-only and chat-only. It does not call
+external services, run background threads, execute SQL from chat, issue
+Playerbots commands, change AI state, store chat history, model mood, react to
+combat, track kills, deaths, healing, resurrection, wipes, boss kills, dungeon
+completion, loot events, leadership, or generate free-form text. Help-request
+replies are conversational only; actual bot control still requires normal
+Playerbots commands.

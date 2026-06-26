@@ -3,6 +3,7 @@
 
 #include "BotChatIntent.h"
 #include "BotPersonality.h"
+#include "BotRelationship.h"
 #include "Define.h"
 
 #include <string>
@@ -20,6 +21,10 @@ struct BotDialogueContext
     BotResponseTone tone = BotResponseTone::Neutral;
 
     BotPersonality personality;
+    BotRelationship relationship;
+    BotRelationshipLevel relationshipLevel = BotRelationshipLevel::Neutral;
+
+    bool hasExistingRelationship = false;
 
     bool isWhisper = false;
     bool isPartyChat = false;

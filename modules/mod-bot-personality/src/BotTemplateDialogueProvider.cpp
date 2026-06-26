@@ -7,11 +7,372 @@ namespace
 {
 using TemplateList = std::array<std::string_view, 3>;
 
+enum class RelationshipTemplateBand : uint8
+{
+    Negative = 0,
+    Neutral,
+    Positive,
+    Loyal
+};
+
 struct TemplateGroup
 {
     BotChatIntent intent;
     BotResponseTone tone;
     TemplateList templates;
+};
+
+struct RelationshipTemplateGroup
+{
+    BotChatIntent intent;
+    RelationshipTemplateBand band;
+    BotResponseTone tone;
+    bool toneSpecific;
+    TemplateList templates;
+};
+
+RelationshipTemplateBand RelationshipBandForLevel(
+    BotRelationshipLevel level)
+{
+    switch (level)
+    {
+        case BotRelationshipLevel::Hostile:
+        case BotRelationshipLevel::Disliked:
+        case BotRelationshipLevel::Wary:
+            return RelationshipTemplateBand::Negative;
+        case BotRelationshipLevel::Friendly:
+        case BotRelationshipLevel::Trusted:
+            return RelationshipTemplateBand::Positive;
+        case BotRelationshipLevel::Loyal:
+            return RelationshipTemplateBand::Loyal;
+        case BotRelationshipLevel::Neutral:
+            return RelationshipTemplateBand::Neutral;
+    }
+
+    return RelationshipTemplateBand::Neutral;
+}
+
+RelationshipTemplateGroup const RelationshipTemplateGroups[] =
+{
+    {
+        BotChatIntent::Greeting,
+        RelationshipTemplateBand::Negative,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "What do you need?",
+            "I remember you. Speak plainly.",
+            "Make it quick."
+        }
+    },
+    {
+        BotChatIntent::Greeting,
+        RelationshipTemplateBand::Positive,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Good to see you again, {player}.",
+            "There you are. Ready to continue?",
+            "I was hoping you would return."
+        }
+    },
+    {
+        BotChatIntent::Greeting,
+        RelationshipTemplateBand::Loyal,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "I knew you would return, {player}.",
+            "Ready when you are, old friend.",
+            "It is good to have you here."
+        }
+    },
+    {
+        BotChatIntent::Greeting,
+        RelationshipTemplateBand::Positive,
+        BotResponseTone::Sarcastic,
+        true,
+        {
+            "Back again? Good. Things were getting dull.",
+            "There you are. Try not to make me admit I missed you.",
+            "Good, {player}. I was almost forced to be productive alone."
+        }
+    },
+    {
+        BotChatIntent::Greeting,
+        RelationshipTemplateBand::Negative,
+        BotResponseTone::Sarcastic,
+        true,
+        {
+            "Back again? How fortunate for me.",
+            "You again. My day is complete.",
+            "Say it before I start enjoying the silence."
+        }
+    },
+    {
+        BotChatIntent::Farewell,
+        RelationshipTemplateBand::Negative,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Fine. Go.",
+            "We are done here.",
+            "Until you need something else."
+        }
+    },
+    {
+        BotChatIntent::Farewell,
+        RelationshipTemplateBand::Positive,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Safe travels, {player}.",
+            "Come back in one piece.",
+            "Until next time. I will be ready."
+        }
+    },
+    {
+        BotChatIntent::Farewell,
+        RelationshipTemplateBand::Loyal,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Go safely, old friend.",
+            "I will be here when you return.",
+            "Until we travel together again."
+        }
+    },
+    {
+        BotChatIntent::Thanks,
+        RelationshipTemplateBand::Negative,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Good. Remember it.",
+            "Do not waste it.",
+            "Fine."
+        }
+    },
+    {
+        BotChatIntent::Thanks,
+        RelationshipTemplateBand::Positive,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Any time, {player}.",
+            "That is what companions do.",
+            "You would do the same."
+        }
+    },
+    {
+        BotChatIntent::Thanks,
+        RelationshipTemplateBand::Loyal,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Always, {player}.",
+            "You never need to ask twice.",
+            "At your side, as ever."
+        }
+    },
+    {
+        BotChatIntent::Praise,
+        RelationshipTemplateBand::Negative,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Praise from you is unexpected.",
+            "At least you noticed.",
+            "Keep that judgment sharp."
+        }
+    },
+    {
+        BotChatIntent::Praise,
+        RelationshipTemplateBand::Positive,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "That means something coming from you.",
+            "We did well together.",
+            "Your eye for the work is improving."
+        }
+    },
+    {
+        BotChatIntent::Praise,
+        RelationshipTemplateBand::Loyal,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "From you, that matters.",
+            "We have earned that together.",
+            "Your confidence is well placed."
+        }
+    },
+    {
+        BotChatIntent::Apology,
+        RelationshipTemplateBand::Negative,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "I heard you. Prove it next time.",
+            "Words are easy. Do better.",
+            "Accepted for now."
+        }
+    },
+    {
+        BotChatIntent::Apology,
+        RelationshipTemplateBand::Positive,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "It is all right, {player}.",
+            "I trust you to make it right.",
+            "We recover and continue."
+        }
+    },
+    {
+        BotChatIntent::Apology,
+        RelationshipTemplateBand::Loyal,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "No harm between us.",
+            "We have survived worse.",
+            "I know your intent. We move on."
+        }
+    },
+    {
+        BotChatIntent::Insult,
+        RelationshipTemplateBand::Negative,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "That is enough.",
+            "Speak with purpose or not at all.",
+            "You are not helping your case."
+        }
+    },
+    {
+        BotChatIntent::Insult,
+        RelationshipTemplateBand::Positive,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Careful, {player}. We are better than that.",
+            "I will let that pass once.",
+            "Say what you mean without the edge."
+        }
+    },
+    {
+        BotChatIntent::Insult,
+        RelationshipTemplateBand::Loyal,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "I know you. That is not like you.",
+            "Take a breath. We can speak plainly.",
+            "I will not answer anger with anger."
+        }
+    },
+    {
+        BotChatIntent::HelpRequest,
+        RelationshipTemplateBand::Negative,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Be specific.",
+            "Explain exactly what you need.",
+            "I will hear the request."
+        }
+    },
+    {
+        BotChatIntent::HelpRequest,
+        RelationshipTemplateBand::Positive,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Tell me what you need, {player}.",
+            "I will help if I can.",
+            "Say the task and we will handle it."
+        }
+    },
+    {
+        BotChatIntent::HelpRequest,
+        RelationshipTemplateBand::Loyal,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Always. What do you need?",
+            "Name it, and I will do what I can.",
+            "You have my help."
+        }
+    },
+    {
+        BotChatIntent::IdentityQuestion,
+        RelationshipTemplateBand::Negative,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "I am {bot}. You know enough.",
+            "{bot}. Remember it this time.",
+            "You are speaking to {bot}."
+        }
+    },
+    {
+        BotChatIntent::IdentityQuestion,
+        RelationshipTemplateBand::Positive,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "I am {bot}. You know me well enough by now.",
+            "{bot}, still here with you.",
+            "You know me as {bot}, {player}."
+        }
+    },
+    {
+        BotChatIntent::IdentityQuestion,
+        RelationshipTemplateBand::Loyal,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "I am {bot}, your companion.",
+            "{bot}. You know my name, old friend.",
+            "At your side, I am {bot}."
+        }
+    },
+    {
+        BotChatIntent::WellbeingQuestion,
+        RelationshipTemplateBand::Negative,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Well enough.",
+            "I am functional.",
+            "Do not concern yourself."
+        }
+    },
+    {
+        BotChatIntent::WellbeingQuestion,
+        RelationshipTemplateBand::Positive,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "Better for a familiar voice.",
+            "Steady, {player}. Thank you.",
+            "I am well enough to continue."
+        }
+    },
+    {
+        BotChatIntent::WellbeingQuestion,
+        RelationshipTemplateBand::Loyal,
+        BotResponseTone::Neutral,
+        false,
+        {
+            "I am steady with you here.",
+            "Well, old friend. Ready for more.",
+            "Better knowing you are near."
+        }
+    }
 };
 
 TemplateGroup const TemplateGroups[] =
@@ -893,6 +1254,27 @@ TemplateGroup const* FindGroup(BotChatIntent intent, BotResponseTone tone)
     return nullptr;
 }
 
+RelationshipTemplateGroup const* FindRelationshipGroup(
+    BotChatIntent intent,
+    BotRelationshipLevel level,
+    BotResponseTone tone,
+    bool toneSpecific)
+{
+    RelationshipTemplateBand const band = RelationshipBandForLevel(level);
+
+    for (RelationshipTemplateGroup const& group : RelationshipTemplateGroups)
+    {
+        if (group.intent != intent || group.band != band ||
+            group.toneSpecific != toneSpecific)
+            continue;
+
+        if (!toneSpecific || group.tone == tone)
+            return &group;
+    }
+
+    return nullptr;
+}
+
 void ReplaceAll(
     std::string& text,
     std::string_view placeholder,
@@ -920,29 +1302,68 @@ std::string RenderTemplate(
 std::optional<std::string> BotTemplateDialogueProvider::GenerateResponse(
     BotDialogueContext const& context)
 {
-    TemplateGroup const* group = FindGroup(context.intent, context.tone);
-    if (!group)
+    TemplateList const* templates = nullptr;
+
+    if (context.hasExistingRelationship)
+    {
+        if (RelationshipTemplateGroup const* relationshipGroup =
+                FindRelationshipGroup(
+                    context.intent,
+                    context.relationshipLevel,
+                    context.tone,
+                    true))
+            templates = &relationshipGroup->templates;
+
+        if (!templates)
+        {
+            if (RelationshipTemplateGroup const* relationshipGroup =
+                    FindRelationshipGroup(
+                        context.intent,
+                        context.relationshipLevel,
+                        context.tone,
+                        false))
+                templates = &relationshipGroup->templates;
+        }
+    }
+
+    TemplateGroup const* group = nullptr;
+    if (!templates)
+    {
+        group = FindGroup(context.intent, context.tone);
+        if (group)
+            templates = &group->templates;
+    }
+
+    if (!templates)
+    {
         group = FindGroup(context.intent, BotResponseTone::Neutral);
+        if (group)
+            templates = &group->templates;
+    }
 
-    if (!group)
+    if (!templates)
+    {
         group = FindGroup(BotChatIntent::Unknown, BotResponseTone::Neutral);
+        if (group)
+            templates = &group->templates;
+    }
 
-    if (!group)
+    if (!templates)
         return std::nullopt;
 
-    std::size_t index = context.selectionSeed % group->templates.size();
-    for (std::size_t offset = 0; offset < group->templates.size(); ++offset)
+    std::size_t index = context.selectionSeed % templates->size();
+    for (std::size_t offset = 0; offset < templates->size(); ++offset)
     {
         std::size_t const candidate =
-            (index + offset) % group->templates.size();
+            (index + offset) % templates->size();
         std::string response = RenderTemplate(
-            group->templates[candidate],
+            (*templates)[candidate],
             context);
 
         if (response.empty())
             continue;
 
-        if (group->templates.size() > 1 &&
+        if (templates->size() > 1 &&
             !context.previousResponse.empty() &&
             response == context.previousResponse)
             continue;
@@ -950,5 +1371,5 @@ std::optional<std::string> BotTemplateDialogueProvider::GenerateResponse(
         return response;
     }
 
-    return RenderTemplate(group->templates[index], context);
+    return RenderTemplate((*templates)[index], context);
 }

@@ -2,6 +2,7 @@
 
 #include "IBotDialogueProvider.h"
 #include "BotPersonalityMgr.h"
+#include "BotRelationshipMgr.h"
 #include "BotTemplateDialogueProvider.h"
 #include "Config.h"
 #include "Group.h"
@@ -194,6 +195,34 @@ bool MatchesPlayerbotTrigger(PlayerbotAI* botAI, std::string const& command)
     return false;
 }
 #endif
+
+BotRelationshipEvent RelationshipEventForIntent(BotChatIntent intent)
+{
+    switch (intent)
+    {
+        case BotChatIntent::Greeting:
+            return BotRelationshipEvent::Greeting;
+        case BotChatIntent::Thanks:
+            return BotRelationshipEvent::Thanks;
+        case BotChatIntent::Praise:
+            return BotRelationshipEvent::Praise;
+        case BotChatIntent::Apology:
+            return BotRelationshipEvent::Apology;
+        case BotChatIntent::Insult:
+            return BotRelationshipEvent::Insult;
+        case BotChatIntent::HelpRequest:
+            return BotRelationshipEvent::HelpRequest;
+        case BotChatIntent::Farewell:
+        case BotChatIntent::IdentityQuestion:
+        case BotChatIntent::WellbeingQuestion:
+        case BotChatIntent::Agreement:
+        case BotChatIntent::Disagreement:
+        case BotChatIntent::Unknown:
+            return BotRelationshipEvent::Conversation;
+    }
+
+    return BotRelationshipEvent::Conversation;
+}
 }
 
 BotDialogueMgr::BotDialogueMgr()
@@ -393,8 +422,24 @@ bool BotDialogueMgr::HandleIncomingWhisper(
 
     uint32 const botGuid = bot->GetGUID().GetCounter();
     uint32 const playerGuid = sender->GetGUID().GetCounter();
-    if (ShouldSuppressDuplicate(botGuid, playerGuid, normalized, nowMs))
+    bool repeatedSpam = false;
+    if (ShouldSuppressDuplicate(
+            botGuid,
+            playerGuid,
+            normalized,
+            nowMs,
+            repeatedSpam))
+    {
+        if (repeatedSpam)
+        {
+            sBotRelationshipMgr.ApplyEvent(
+                bot,
+                sender,
+                BotRelationshipEvent::RepeatedSpam);
+        }
+
         return false;
+    }
 
     std::optional<BotDialogueContext> context =
         BuildContext(sender, bot, message, std::nullopt);
@@ -413,6 +458,17 @@ bool BotDialogueMgr::HandleIncomingWhisper(
         }
 
         return false;
+    }
+
+    bool relationshipApplied = false;
+    if (context->intent != BotChatIntent::Unknown)
+    {
+        relationshipApplied = sBotRelationshipMgr.ApplyEvent(
+            bot,
+            sender,
+            RelationshipEventForIntent(context->intent));
+        if (relationshipApplied)
+            ApplyRelationshipContext(*context, bot, sender);
     }
 
     if (_config.debugLogging)
@@ -456,6 +512,16 @@ bool BotDialogueMgr::HandleIncomingWhisper(
     std::optional<std::string> response = GenerateResponse(*context);
     if (!response || response->empty())
         return false;
+
+    if (context->intent == BotChatIntent::Unknown && !relationshipApplied)
+    {
+        relationshipApplied = sBotRelationshipMgr.ApplyEvent(
+            bot,
+            sender,
+            BotRelationshipEvent::Conversation);
+        if (relationshipApplied)
+            ApplyRelationshipContext(*context, bot, sender);
+    }
 
     std::string responseText = *response;
     TruncateUtf8Bytes(responseText, _config.maxOutputLength);
@@ -589,9 +655,7 @@ std::optional<BotDialogueContext> BotDialogueMgr::BuildContext(
     context.originalMessage = message;
     context.intent = forcedIntent ? *forcedIntent : ParseIntent(message);
     context.personality = *personality;
-    context.tone = DetermineBotResponseTone(
-        context.personality,
-        context.intent);
+    ApplyRelationshipContext(context, bot, sender);
     context.isWhisper = true;
 
     context.botInCombat = bot->IsInCombat();
@@ -608,6 +672,36 @@ std::optional<BotDialogueContext> BotDialogueMgr::BuildContext(
     context.zoneId = bot->GetZoneId();
 
     return context;
+}
+
+void BotDialogueMgr::ApplyRelationshipContext(
+    BotDialogueContext& context,
+    Player* bot,
+    Player* sender) const
+{
+    BotRelationship relationship;
+    context.hasExistingRelationship =
+        sender &&
+        sBotRelationshipMgr.GetExistingRelationship(bot, sender, relationship);
+
+    if (context.hasExistingRelationship)
+    {
+        context.relationship = relationship;
+        context.relationshipLevel = GetRelationshipLevel(
+            relationship.affinity);
+        context.tone = DetermineBotResponseTone(
+            context.personality,
+            context.intent,
+            context.relationship,
+            context.relationshipLevel);
+        return;
+    }
+
+    context.relationship = {};
+    context.relationshipLevel = BotRelationshipLevel::Neutral;
+    context.tone = DetermineBotResponseTone(
+        context.personality,
+        context.intent);
 }
 
 bool BotDialogueMgr::IsEligibleWhisper(
@@ -780,8 +874,11 @@ bool BotDialogueMgr::ShouldSuppressDuplicate(
     uint32 botGuid,
     uint32 playerGuid,
     std::string const& normalized,
-    uint32 nowMs)
+    uint32 nowMs,
+    bool& repeatedSpam)
 {
+    repeatedSpam = false;
+
     if (_config.duplicateWindowMs == 0)
         return false;
 
@@ -795,6 +892,8 @@ bool BotDialogueMgr::ShouldSuppressDuplicate(
             _config.duplicateWindowMs)
     {
         itr->second.lastSeenMs = nowMs;
+        ++itr->second.duplicateCount;
+        repeatedSpam = itr->second.duplicateCount >= 2;
 
         if (_config.debugLogging)
         {
@@ -808,7 +907,7 @@ bool BotDialogueMgr::ShouldSuppressDuplicate(
         return true;
     }
 
-    _duplicates[key] = { messageHash, nowMs };
+    _duplicates[key] = { messageHash, nowMs, 0 };
     TrimMapToLimit(_duplicates);
     return false;
 }

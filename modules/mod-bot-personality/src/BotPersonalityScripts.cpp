@@ -1,6 +1,7 @@
 #include "BotPersonalityMgr.h"
 
 #include "BotDialogueMgr.h"
+#include "BotRelationshipMgr.h"
 #include "Log.h"
 #include "Player.h"
 #include "PlayerScript.h"
@@ -16,7 +17,8 @@ public:
               {
                   WORLDHOOK_ON_BEFORE_WORLD_INITIALIZED,
                   WORLDHOOK_ON_AFTER_CONFIG_LOAD,
-                  WORLDHOOK_ON_UPDATE
+                  WORLDHOOK_ON_UPDATE,
+                  WORLDHOOK_ON_SHUTDOWN
               })
     {
     }
@@ -25,17 +27,25 @@ public:
     {
         sBotPersonalityMgr.LoadConfig(false);
         sBotDialogueMgr.LoadConfig(false);
+        sBotRelationshipMgr.LoadConfig(false);
     }
 
     void OnAfterConfigLoad(bool reload) override
     {
         sBotPersonalityMgr.LoadConfig(reload);
         sBotDialogueMgr.LoadConfig(reload);
+        sBotRelationshipMgr.LoadConfig(reload);
     }
 
     void OnUpdate(uint32 diff) override
     {
         sBotDialogueMgr.Update(diff);
+        sBotRelationshipMgr.Update(diff);
+    }
+
+    void OnShutdown() override
+    {
+        sBotRelationshipMgr.OnShutdown();
     }
 };
 
@@ -46,7 +56,8 @@ public:
         : PlayerScript(
               "BotPersonalityPlayerScript",
               {
-                  PLAYERHOOK_ON_LOGIN
+                  PLAYERHOOK_ON_LOGIN,
+                  PLAYERHOOK_ON_LOGOUT
               })
     {
     }
@@ -54,6 +65,12 @@ public:
     void OnPlayerLogin(Player* player) override
     {
         sBotPersonalityMgr.QueueLoginGeneration(player);
+    }
+
+    void OnPlayerLogout(Player* player) override
+    {
+        if (player)
+            sBotRelationshipMgr.SaveRelationshipsForPlayer(player->GetGUID());
     }
 };
 
@@ -72,8 +89,11 @@ public:
 
     void OnPlayerbotLogout(Player* player) override
     {
-        if (player)
-            sBotPersonalityMgr.RemoveQueuedLoginGeneration(player->GetGUID());
+        if (!player)
+            return;
+
+        sBotPersonalityMgr.RemoveQueuedLoginGeneration(player->GetGUID());
+        sBotRelationshipMgr.SaveRelationshipsForPlayer(player->GetGUID());
     }
 };
 

@@ -1,14 +1,18 @@
 #include "BotPersonalityMgr.h"
 
 #include "BotDialogueMgr.h"
+#include "BotRelationshipMgr.h"
 #include "CharacterCache.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "GameTime.h"
 #include "ObjectAccessor.h"
+#include "ObjectGuid.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "StringFormat.h"
+#include "Timer.h"
 #include "Util.h"
 
 #include <algorithm>
@@ -213,6 +217,7 @@ void SendRootUsage(ChatHandler* handler)
     Send(handler, "Usage: .botpersonality reload <botName>");
     Send(handler, "Usage: .botpersonality clearcache");
     Send(handler, "Usage: .botpersonality chat");
+    Send(handler, "Usage: .botpersonality relationship");
 }
 
 void SendChatUsage(ChatHandler* handler)
@@ -221,7 +226,33 @@ void SendChatUsage(ChatHandler* handler)
     Send(handler, "Usage: .botpersonality chat parse <message>");
     Send(handler, "Usage: .botpersonality chat cooldowns");
     Send(handler, "Usage: .botpersonality chat clearcooldowns");
-    Send(handler, "Usage: .botpersonality chat force <botName> <playerName> <intent>");
+    Send(
+        handler,
+        "Usage: .botpersonality chat force <botName> <playerName> <intent>");
+}
+
+void SendRelationshipUsage(ChatHandler* handler)
+{
+    Send(
+        handler,
+        "Usage: .botpersonality relationship show <botName> <playerName>");
+    Send(
+        handler,
+        "Usage: .botpersonality relationship set <botName> <playerName> "
+        "<field> <value>");
+    Send(
+        handler,
+        "Usage: .botpersonality relationship adjust <botName> <playerName> "
+        "<field> <amount>");
+    Send(
+        handler,
+        "Usage: .botpersonality relationship reset <botName> <playerName>");
+    Send(
+        handler,
+        "Usage: .botpersonality relationship reload <botName> <playerName>");
+    Send(handler, "Usage: .botpersonality relationship list <botName> [limit]");
+    Send(handler, "Usage: .botpersonality relationship save");
+    Send(handler, "Usage: .botpersonality relationship clearcache");
 }
 
 std::string TrimArgs(char const* args)
@@ -266,7 +297,71 @@ void SendDialogueDebugResult(
     Send(handler, "Bot: {}", result.context.botName);
     Send(handler, "Intent: {}", BotChatIntentToString(result.context.intent));
     Send(handler, "Tone: {}", BotResponseToneToString(result.context.tone));
+    if (result.context.hasExistingRelationship)
+    {
+        Send(
+            handler,
+            "Relationship: {}",
+            RelationshipLevelToString(result.context.relationshipLevel));
+    }
+
     Send(handler, "Response: {}", result.response);
+}
+
+std::string FormatRelationshipTime(uint32 timestamp)
+{
+    if (!timestamp)
+        return "never";
+
+    return Acore::Time::TimeToTimestampStr(Seconds(timestamp));
+}
+
+void SendRelationship(
+    ChatHandler* handler,
+    Player const* bot,
+    Player const* player,
+    BotRelationship const& relationship)
+{
+    Send(handler, "Bot: {}", bot->GetName());
+    Send(handler, "Player: {}", player->GetName());
+    Send(handler, "Affinity: {}", static_cast<int32>(relationship.affinity));
+    Send(
+        handler,
+        "Relationship level: {}",
+        RelationshipLevelToString(
+            GetRelationshipLevel(relationship.affinity)));
+    Send(handler, "Trust: {}", static_cast<int32>(relationship.trust));
+    Send(handler, "Respect: {}", static_cast<int32>(relationship.respect));
+    Send(
+        handler,
+        "Familiarity: {}",
+        static_cast<int32>(relationship.familiarity));
+    Send(
+        handler,
+        "Positive interactions: {}",
+        relationship.positiveInteractions);
+    Send(
+        handler,
+        "Negative interactions: {}",
+        relationship.negativeInteractions);
+    Send(
+        handler,
+        "First interaction: {}",
+        FormatRelationshipTime(relationship.firstInteraction));
+    Send(
+        handler,
+        "Last interaction: {}",
+        FormatRelationshipTime(relationship.lastInteraction));
+}
+
+std::string RelationshipPlayerName(uint32 playerGuid)
+{
+    std::string name;
+    ObjectGuid const guid = ObjectGuid::Create<HighGuid::Player>(playerGuid);
+    if (sCharacterCache->GetCharacterNameByGuid(guid, name))
+        return name;
+
+    return Acore::StringFormat("#{}", playerGuid);
 }
 }
 
@@ -297,6 +392,7 @@ public:
                 Console::Yes
             },
             { "reload", HandleReloadCommand, SEC_GAMEMASTER, Console::Yes },
+            { "relationship", GetRelationshipCommandTable() },
             {
                 "clearcache",
                 HandleClearCacheCommand,
@@ -340,6 +436,64 @@ public:
         return chatCommandTable;
     }
 
+    static ChatCommandTable const& GetRelationshipCommandTable()
+    {
+        static ChatCommandTable relationshipCommandTable =
+        {
+            {
+                "show",
+                HandleRelationshipShowCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "set",
+                HandleRelationshipSetCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "adjust",
+                HandleRelationshipAdjustCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "reset",
+                HandleRelationshipResetCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            {
+                "reload",
+                HandleRelationshipReloadCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "list",
+                HandleRelationshipListCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "save",
+                HandleRelationshipSaveCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            {
+                "clearcache",
+                HandleRelationshipClearCacheCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            { "", HandleRelationshipHelpCommand, SEC_GAMEMASTER, Console::Yes }
+        };
+
+        return relationshipCommandTable;
+    }
+
     static bool HandleHelpCommand(ChatHandler* handler, char const* /*args*/)
     {
         SendRootUsage(handler);
@@ -351,6 +505,14 @@ public:
         char const* /*args*/)
     {
         SendChatUsage(handler);
+        return true;
+    }
+
+    static bool HandleRelationshipHelpCommand(
+        ChatHandler* handler,
+        char const* /*args*/)
+    {
+        SendRelationshipUsage(handler);
         return true;
     }
 
@@ -757,6 +919,326 @@ public:
         }
 
         SendDialogueDebugResult(handler, result);
+        return true;
+    }
+
+    static bool HandleRelationshipShowCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 2)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality relationship show <botName> "
+                "<playerName>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        Player* player = FindOnlineRealPlayer(handler, tokens[1]);
+        if (!player)
+            return true;
+
+        BotRelationship relationship;
+        if (!sBotRelationshipMgr.GetExistingRelationship(
+                bot,
+                player,
+                relationship))
+        {
+            Send(
+                handler,
+                "No relationship exists for bot '{}' and player '{}'.",
+                bot->GetName(),
+                player->GetName());
+            return true;
+        }
+
+        SendRelationship(handler, bot, player, relationship);
+        return true;
+    }
+
+    static bool HandleRelationshipSetCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 4)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality relationship set <botName> "
+                "<playerName> <field> <value>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        Player* player = FindOnlineRealPlayer(handler, tokens[1]);
+        if (!player)
+            return true;
+
+        int32 value = 0;
+        if (!TryParseInt32(tokens[3], value))
+        {
+            Send(handler, "Invalid relationship value '{}'.", tokens[3]);
+            return false;
+        }
+
+        if (!sBotRelationshipMgr.SetValue(bot, player, tokens[2], value))
+        {
+            Send(
+                handler,
+                "Invalid field '{}'. Use affinity, trust, respect, or "
+                "familiarity.",
+                tokens[2]);
+            return false;
+        }
+
+        BotRelationship relationship;
+        sBotRelationshipMgr.GetExistingRelationship(bot, player, relationship);
+        Send(
+            handler,
+            "{} / {} relationship saved. Level: {}.",
+            bot->GetName(),
+            player->GetName(),
+            RelationshipLevelToString(
+                GetRelationshipLevel(relationship.affinity)));
+        return true;
+    }
+
+    static bool HandleRelationshipAdjustCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 4)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality relationship adjust <botName> "
+                "<playerName> <field> <amount>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        Player* player = FindOnlineRealPlayer(handler, tokens[1]);
+        if (!player)
+            return true;
+
+        int32 amount = 0;
+        if (!TryParseInt32(tokens[3], amount))
+        {
+            Send(handler, "Invalid relationship amount '{}'.", tokens[3]);
+            return false;
+        }
+
+        int32 oldValue = 0;
+        int32 newValue = 0;
+        if (!sBotRelationshipMgr.AdjustValue(
+                bot,
+                player,
+                tokens[2],
+                amount,
+                oldValue,
+                newValue))
+        {
+            Send(
+                handler,
+                "Invalid field '{}'. Use affinity, trust, respect, or "
+                "familiarity.",
+                tokens[2]);
+            return false;
+        }
+
+        BotRelationship relationship;
+        sBotRelationshipMgr.GetExistingRelationship(bot, player, relationship);
+        Send(
+            handler,
+            "{} changed from {} to {}. Level: {}.",
+            tokens[2],
+            oldValue,
+            newValue,
+            RelationshipLevelToString(
+                GetRelationshipLevel(relationship.affinity)));
+        return true;
+    }
+
+    static bool HandleRelationshipResetCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 2)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality relationship reset <botName> "
+                "<playerName>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        Player* player = FindOnlineRealPlayer(handler, tokens[1]);
+        if (!player)
+            return true;
+
+        sBotRelationshipMgr.ResetRelationship(bot, player);
+        Send(
+            handler,
+            "Relationship reset for bot '{}' and player '{}'.",
+            bot->GetName(),
+            player->GetName());
+        return true;
+    }
+
+    static bool HandleRelationshipReloadCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 2)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality relationship reload <botName> "
+                "<playerName>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        Player* player = FindOnlineRealPlayer(handler, tokens[1]);
+        if (!player)
+            return true;
+
+        if (!sBotRelationshipMgr.ReloadRelationship(bot, player))
+        {
+            Send(
+                handler,
+                "No relationship row exists for bot '{}' and player '{}'.",
+                bot->GetName(),
+                player->GetName());
+            return true;
+        }
+
+        BotRelationship relationship;
+        sBotRelationshipMgr.GetExistingRelationship(bot, player, relationship);
+        SendRelationship(handler, bot, player, relationship);
+        return true;
+    }
+
+    static bool HandleRelationshipListCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.empty() || tokens.size() > 2)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality relationship list <botName> [limit]");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        int32 parsedLimit = 20;
+        if (tokens.size() == 2 && !TryParseInt32(tokens[1], parsedLimit))
+        {
+            Send(handler, "Invalid list limit '{}'.", tokens[1]);
+            return false;
+        }
+
+        uint32 const limit = static_cast<uint32>(
+            std::clamp(parsedLimit, 1, 100));
+        std::vector<BotRelationshipListEntry> entries =
+            sBotRelationshipMgr.ListRelationships(
+                bot->GetGUID().GetCounter(),
+                limit);
+
+        if (entries.empty())
+        {
+            Send(handler, "No relationships found for '{}'.", bot->GetName());
+            return true;
+        }
+
+        Send(handler, "Relationships for {}:", bot->GetName());
+        for (BotRelationshipListEntry const& entry : entries)
+        {
+            BotRelationship const& relationship = entry.relationship;
+            Send(
+                handler,
+                "{} | affinity {} | {} | trust {} | respect {} | "
+                "familiarity {} | last {}",
+                RelationshipPlayerName(entry.playerGuid),
+                static_cast<int32>(relationship.affinity),
+                RelationshipLevelToString(
+                    GetRelationshipLevel(relationship.affinity)),
+                static_cast<int32>(relationship.trust),
+                static_cast<int32>(relationship.respect),
+                static_cast<int32>(relationship.familiarity),
+                FormatRelationshipTime(relationship.lastInteraction));
+        }
+
+        return true;
+    }
+
+    static bool HandleRelationshipSaveCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality relationship save");
+            return false;
+        }
+
+        BotRelationshipSaveStats const stats =
+            sBotRelationshipMgr.SaveDirtyRelationships();
+        Send(
+            handler,
+            "Saved: {} Failed: {} Remaining dirty: {}",
+            stats.saved,
+            stats.failed,
+            stats.remainingDirty);
+        return true;
+    }
+
+    static bool HandleRelationshipClearCacheCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality relationship clearcache");
+            return false;
+        }
+
+        BotRelationshipSaveStats const stats =
+            sBotRelationshipMgr.SaveDirtyRelationships();
+        sBotRelationshipMgr.ClearCache();
+        Send(
+            handler,
+            "Relationship cache cleared. Saved: {} Remaining dirty: {}",
+            stats.saved,
+            stats.remainingDirty);
         return true;
     }
 };
