@@ -1,6 +1,7 @@
 #include "BotPersonalityMgr.h"
 
 #include "BotDialogueMgr.h"
+#include "BotGameplayTracker.h"
 #include "BotRelationshipMgr.h"
 #include "CharacterCache.h"
 #include "Chat.h"
@@ -218,6 +219,7 @@ void SendRootUsage(ChatHandler* handler)
     Send(handler, "Usage: .botpersonality clearcache");
     Send(handler, "Usage: .botpersonality chat");
     Send(handler, "Usage: .botpersonality relationship");
+    Send(handler, "Usage: .botpersonality gameplay");
 }
 
 void SendChatUsage(ChatHandler* handler)
@@ -255,6 +257,21 @@ void SendRelationshipUsage(ChatHandler* handler)
     Send(handler, "Usage: .botpersonality relationship clearcache");
 }
 
+void SendGameplayUsage(ChatHandler* handler)
+{
+    Send(handler, "Usage: .botpersonality gameplay status");
+    Send(handler, "Usage: .botpersonality gameplay show <botName> <playerName>");
+    Send(
+        handler,
+        "Usage: .botpersonality gameplay simulate <botName> <playerName> "
+        "<event> [apply]");
+    Send(
+        handler,
+        "Usage: .botpersonality gameplay recent <botName> <playerName>");
+    Send(handler, "Usage: .botpersonality gameplay trackers");
+    Send(handler, "Usage: .botpersonality gameplay cleartrackers");
+}
+
 std::string TrimArgs(char const* args)
 {
     std::string text(args ? args : "");
@@ -288,6 +305,39 @@ bool ParseIntentArg(
         "insult, help, identity, wellbeing, agreement, disagreement, "
         "unknown.");
     return false;
+}
+
+bool ParseGameplayEventArg(
+    ChatHandler* handler,
+    std::string const& text,
+    BotGameplayEvent& event)
+{
+    if (BotGameplayEventFromString(text, event))
+        return true;
+
+    Send(handler, "Invalid gameplay event '{}'.", text);
+    Send(
+        handler,
+        "Supported events: normal, elite, boss, playerhealedbot, "
+        "playerresurrectedbot, bothealedplayer, botresurrectedplayer, "
+        "playerdied, botdied, shareddeath, wipe, leftcombat, dungeon, "
+        "raid, teamwork, repeateddeath.");
+    return false;
+}
+
+void SendDelta(
+    ChatHandler* handler,
+    std::string_view label,
+    BotRelationshipDelta const& delta)
+{
+    Send(
+        handler,
+        "{} delta: affinity {} trust {} respect {} familiarity {}",
+        label,
+        delta.affinity,
+        delta.trust,
+        delta.respect,
+        delta.familiarity);
 }
 
 void SendDialogueDebugResult(
@@ -346,6 +396,32 @@ void SendRelationship(
         relationship.negativeInteractions);
     Send(
         handler,
+        "Gameplay kills: normal {} elite {} boss {}",
+        relationship.sharedNormalKills,
+        relationship.sharedEliteKills,
+        relationship.sharedBossKills);
+    Send(
+        handler,
+        "Gameplay heals/resurrections: player->bot {}/{} bot->player {}/{}",
+        relationship.playerHealedBotEvents,
+        relationship.playerResurrectedBotEvents,
+        relationship.botHealedPlayerEvents,
+        relationship.botResurrectedPlayerEvents);
+    Send(
+        handler,
+        "Gameplay deaths: player {} bot {} shared {} wipes {}",
+        relationship.playerDeaths,
+        relationship.botDeaths,
+        relationship.sharedDeaths,
+        relationship.groupWipes);
+    Send(
+        handler,
+        "Gameplay completions: dungeons {} raids {} teamwork {}",
+        relationship.dungeonsCompleted,
+        relationship.raidEncountersCompleted,
+        relationship.sustainedTeamworkEvents);
+    Send(
+        handler,
         "First interaction: {}",
         FormatRelationshipTime(relationship.firstInteraction));
     Send(
@@ -393,6 +469,7 @@ public:
             },
             { "reload", HandleReloadCommand, SEC_GAMEMASTER, Console::Yes },
             { "relationship", GetRelationshipCommandTable() },
+            { "gameplay", GetGameplayCommandTable() },
             {
                 "clearcache",
                 HandleClearCacheCommand,
@@ -494,6 +571,42 @@ public:
         return relationshipCommandTable;
     }
 
+    static ChatCommandTable const& GetGameplayCommandTable()
+    {
+        static ChatCommandTable gameplayCommandTable =
+        {
+            { "status", HandleGameplayStatusCommand, SEC_GAMEMASTER, Console::Yes },
+            { "show", HandleGameplayShowCommand, SEC_GAMEMASTER, Console::Yes },
+            {
+                "simulate",
+                HandleGameplaySimulateCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "recent",
+                HandleGameplayRecentCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "trackers",
+                HandleGameplayTrackersCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "cleartrackers",
+                HandleGameplayClearTrackersCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            { "", HandleGameplayHelpCommand, SEC_GAMEMASTER, Console::Yes }
+        };
+
+        return gameplayCommandTable;
+    }
+
     static bool HandleHelpCommand(ChatHandler* handler, char const* /*args*/)
     {
         SendRootUsage(handler);
@@ -513,6 +626,14 @@ public:
         char const* /*args*/)
     {
         SendRelationshipUsage(handler);
+        return true;
+    }
+
+    static bool HandleGameplayHelpCommand(
+        ChatHandler* handler,
+        char const* /*args*/)
+    {
+        SendGameplayUsage(handler);
         return true;
     }
 
@@ -1239,6 +1360,240 @@ public:
             "Relationship cache cleared. Saved: {} Remaining dirty: {}",
             stats.saved,
             stats.remainingDirty);
+        return true;
+    }
+
+    static bool HandleGameplayStatusCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality gameplay status");
+            return false;
+        }
+
+        BotGameplayTrackerStats const stats = sBotGameplayTracker.GetStats();
+        Send(handler, "Gameplay tracking: {}", stats.enabled ? "on" : "off");
+        Send(
+            handler,
+            "Relationship updates: {}",
+            stats.updateRelationships ? "on" : "off");
+        Send(
+            handler,
+            "Tracked pairs: recent {} teamwork {} caps {} deaths {}",
+            stats.recentPairs,
+            stats.teamworkPairs,
+            stats.capPairs,
+            stats.deathWindows);
+        return true;
+    }
+
+    static bool HandleGameplayShowCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 2)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality gameplay show <botName> "
+                "<playerName>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        Player* player = FindOnlineRealPlayer(handler, tokens[1]);
+        if (!player)
+            return true;
+
+        BotRelationship relationship;
+        if (!sBotRelationshipMgr.GetExistingRelationship(
+                bot,
+                player,
+                relationship))
+        {
+            Send(
+                handler,
+                "No relationship exists for bot '{}' and player '{}'.",
+                bot->GetName(),
+                player->GetName());
+            return true;
+        }
+
+        SendRelationship(handler, bot, player, relationship);
+        return true;
+    }
+
+    static bool HandleGameplaySimulateCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() < 3 || tokens.size() > 4)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality gameplay simulate <botName> "
+                "<playerName> <event> [apply]");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        Player* player = FindOnlineRealPlayer(handler, tokens[1]);
+        if (!player)
+            return true;
+
+        BotGameplayEvent event;
+        if (!ParseGameplayEventArg(handler, tokens[2], event))
+            return false;
+
+        bool apply = false;
+        if (tokens.size() == 4)
+        {
+            std::string option = BotPersonalityToLower(tokens[3]);
+            if (option != "apply")
+            {
+                Send(handler, "Optional fourth argument must be 'apply'.");
+                return false;
+            }
+
+            apply = true;
+        }
+
+        BotGameplayDebugResult const result =
+            sBotGameplayTracker.SimulateEvent(bot, player, event, apply);
+        if (!result.success)
+        {
+            Send(
+                handler,
+                result.error.empty() ?
+                    "Unable to simulate gameplay event." :
+                    result.error);
+            return true;
+        }
+
+        Send(
+            handler,
+            "{} {} for bot '{}' and player '{}'.",
+            apply ? "Applied" : "Previewed",
+            BotGameplayEventToString(event),
+            bot->GetName(),
+            player->GetName());
+        SendDelta(handler, "Base", result.baseDelta);
+        SendDelta(handler, "Adjusted", result.adjustedDelta);
+        Send(handler, "Relationship row updated: {}", result.applied ? "yes" : "no");
+        return true;
+    }
+
+    static bool HandleGameplayRecentCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 2)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality gameplay recent <botName> "
+                "<playerName>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        Player* player = FindOnlineRealPlayer(handler, tokens[1]);
+        if (!player)
+            return true;
+
+        std::vector<BotGameplayRecentEvent> events =
+            sBotGameplayTracker.GetRecentEvents(
+                bot->GetGUID().GetCounter(),
+                player->GetGUID().GetCounter(),
+                10);
+
+        if (events.empty())
+        {
+            Send(
+                handler,
+                "No recent gameplay events for '{}' and '{}'.",
+                bot->GetName(),
+                player->GetName());
+            return true;
+        }
+
+        Send(
+            handler,
+            "Recent gameplay events for {} / {}:",
+            bot->GetName(),
+            player->GetName());
+        for (BotGameplayRecentEvent const& event : events)
+        {
+            Send(
+                handler,
+                "{} | {} | map {} instance {} source {} value {} | "
+                "delta a:{} t:{} r:{} f:{} | {}",
+                FormatRelationshipTime(event.timestamp),
+                BotGameplayEventToString(event.event),
+                event.context.mapId,
+                event.context.instanceId,
+                event.context.sourceEntry,
+                event.context.value,
+                event.adjustedDelta.affinity,
+                event.adjustedDelta.trust,
+                event.adjustedDelta.respect,
+                event.adjustedDelta.familiarity,
+                event.applied ? "applied" : event.note);
+        }
+
+        return true;
+    }
+
+    static bool HandleGameplayTrackersCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality gameplay trackers");
+            return false;
+        }
+
+        BotGameplayTrackerStats const stats = sBotGameplayTracker.GetStats();
+        Send(handler, "Cooldowns: {}", stats.cooldowns);
+        Send(
+            handler,
+            "Normal kill accumulators: {}",
+            stats.normalKillAccumulators);
+        Send(handler, "Heal accumulators: {}", stats.healAccumulators);
+        Send(handler, "Recent event pairs: {}", stats.recentPairs);
+        Send(handler, "Death windows: {}", stats.deathWindows);
+        Send(handler, "Hourly cap pairs: {}", stats.capPairs);
+        Send(handler, "Teamwork pairs: {}", stats.teamworkPairs);
+        return true;
+    }
+
+    static bool HandleGameplayClearTrackersCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality gameplay cleartrackers");
+            return false;
+        }
+
+        sBotGameplayTracker.ClearTrackers();
+        Send(handler, "Bot Personality gameplay trackers cleared.");
         return true;
     }
 };

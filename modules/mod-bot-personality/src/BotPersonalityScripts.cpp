@@ -1,6 +1,7 @@
 #include "BotPersonalityMgr.h"
 
 #include "BotDialogueMgr.h"
+#include "BotGameplayTracker.h"
 #include "BotRelationshipMgr.h"
 #include "Log.h"
 #include "Player.h"
@@ -28,6 +29,7 @@ public:
         sBotPersonalityMgr.LoadConfig(false);
         sBotDialogueMgr.LoadConfig(false);
         sBotRelationshipMgr.LoadConfig(false);
+        sBotGameplayTracker.LoadConfig(false);
     }
 
     void OnAfterConfigLoad(bool reload) override
@@ -35,12 +37,14 @@ public:
         sBotPersonalityMgr.LoadConfig(reload);
         sBotDialogueMgr.LoadConfig(reload);
         sBotRelationshipMgr.LoadConfig(reload);
+        sBotGameplayTracker.LoadConfig(reload);
     }
 
     void OnUpdate(uint32 diff) override
     {
         sBotDialogueMgr.Update(diff);
         sBotRelationshipMgr.Update(diff);
+        sBotGameplayTracker.Update(diff);
     }
 
     void OnShutdown() override
@@ -98,6 +102,7 @@ public:
 };
 
 void AddBotPersonalityChatScripts();
+void AddBotPersonalityGameplayScripts();
 void AddBotPersonalityCommands();
 
 void AddBotPersonalityScripts()
@@ -106,5 +111,6 @@ void AddBotPersonalityScripts()
     new BotPersonalityPlayerScript();
     new BotPersonalityPlayerbotScript();
     AddBotPersonalityChatScripts();
+    AddBotPersonalityGameplayScripts();
     AddBotPersonalityCommands();
 }

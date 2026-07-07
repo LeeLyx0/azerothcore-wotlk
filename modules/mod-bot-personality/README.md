@@ -7,10 +7,11 @@ Phase 1 gives each online Playerbot a deterministic, persisted personality
 record. Phase 2 adds a small template-based direct-whisper response system
 driven by the bot's existing traits and archetype. Phase 3 adds persistent,
 independent relationships between each Playerbot and each real player.
+Phase 4 lets meaningful shared gameplay update those same relationships.
 
 The module still does not implement mood, combat reactions, party banter, LLM
-integration, HTTP calls, external APIs, background workers, or free-form
-language generation.
+integration, HTTP calls, external APIs, background workers, proactive chat, or
+free-form language generation.
 
 ## Installation
 
@@ -52,6 +53,20 @@ CREATE TABLE IF NOT EXISTS `bot_relationship` (
     `familiarity` SMALLINT NOT NULL DEFAULT 0,
     `positive_interactions` INT UNSIGNED NOT NULL DEFAULT 0,
     `negative_interactions` INT UNSIGNED NOT NULL DEFAULT 0,
+    `shared_normal_kills` INT UNSIGNED NOT NULL DEFAULT 0,
+    `shared_elite_kills` INT UNSIGNED NOT NULL DEFAULT 0,
+    `shared_boss_kills` INT UNSIGNED NOT NULL DEFAULT 0,
+    `player_healed_bot_events` INT UNSIGNED NOT NULL DEFAULT 0,
+    `player_resurrected_bot_events` INT UNSIGNED NOT NULL DEFAULT 0,
+    `bot_healed_player_events` INT UNSIGNED NOT NULL DEFAULT 0,
+    `bot_resurrected_player_events` INT UNSIGNED NOT NULL DEFAULT 0,
+    `player_deaths` INT UNSIGNED NOT NULL DEFAULT 0,
+    `bot_deaths` INT UNSIGNED NOT NULL DEFAULT 0,
+    `shared_deaths` INT UNSIGNED NOT NULL DEFAULT 0,
+    `group_wipes` INT UNSIGNED NOT NULL DEFAULT 0,
+    `dungeons_completed` INT UNSIGNED NOT NULL DEFAULT 0,
+    `raid_encounters_completed` INT UNSIGNED NOT NULL DEFAULT 0,
+    `sustained_teamwork_events` INT UNSIGNED NOT NULL DEFAULT 0,
     `first_interaction` INT UNSIGNED NOT NULL DEFAULT 0,
     `last_interaction` INT UNSIGNED NOT NULL DEFAULT 0,
     PRIMARY KEY (`bot_guid`, `player_guid`),
@@ -119,6 +134,33 @@ Phase 3 relationship options:
 - `BotPersonality.Relationship.*Affinity`, `*Trust`, `*Respect`, and
   `*Familiarity`: base event deltas.
 
+Phase 4 gameplay options:
+
+- `BotPersonality.Gameplay.Enable`: enables gameplay tracking.
+- `BotPersonality.Gameplay.UpdateRelationships`: applies detected events to
+  persistent relationships.
+- `BotPersonality.Gameplay.DebugLogging`: gameplay diagnostics.
+- `BotPersonality.Gameplay.Track*`: enables normal kills, elite kills, boss
+  kills, healing, resurrection, deaths, wipes, group leaves, encounter
+  completion, and sustained teamwork independently.
+- `BotPersonality.Gameplay.AllowPvPEvents`: allows battleground and arena
+  gameplay events. It is disabled by default.
+- `BotPersonality.Gameplay.ParticipationDistance`: maximum shared-event range.
+- `BotPersonality.Gameplay.NormalKillBatchSize` and `.NormalKillWindowSeconds`:
+  normal trash aggregation.
+- `BotPersonality.Gameplay.HealThreshold` and `.HealWindowSeconds`: effective
+  healing qualification.
+- `BotPersonality.Gameplay.DeathWindowSeconds` and `.RepeatedDeathThreshold`:
+  shared death and repeated player death windows.
+- `BotPersonality.Gameplay.SustainedTeamworkSeconds`: grouped activity time
+  before teamwork credit.
+- `BotPersonality.Gameplay.MinimumWipeMembers`: conservative wipe threshold.
+- `BotPersonality.Gameplay.MaxPositiveGainPerHour`,
+  `.MaxNegativeLossPerHour`, and `.MaxFamiliarityGainPerHour`: gameplay caps.
+- `BotPersonality.Gameplay.*CooldownSeconds`: per-pair event cooldowns.
+- `BotPersonality.Gameplay.*Affinity`, `*Trust`, `*Respect`, and
+  `*Familiarity`: base gameplay event deltas.
+
 ## Commands
 
 All commands require GM access unless noted.
@@ -143,6 +185,12 @@ All commands require GM access unless noted.
 .botpersonality relationship list <botName> [limit]
 .botpersonality relationship save
 .botpersonality relationship clearcache
+.botpersonality gameplay status
+.botpersonality gameplay show <botName> <playerName>
+.botpersonality gameplay simulate <botName> <playerName> <event> [apply]
+.botpersonality gameplay recent <botName> <playerName>
+.botpersonality gameplay trackers
+.botpersonality gameplay cleartrackers
 ```
 
 `clearcache` requires administrator access. Commands support online bots. Real
@@ -161,6 +209,15 @@ history.
 saving the requested value. `relationship reset` deletes only the selected
 bot/player relationship. `relationship clearcache` saves dirty relationship
 entries and clears only relationship cache and transient anti-farming state.
+
+`gameplay status` shows enabled gameplay trackers. `gameplay show` displays
+relationship values and persisted gameplay counters. `gameplay simulate`
+previews the same base delta, personality adjustment, cooldown, cap, and apply
+path used by live events; it modifies the relationship only with the explicit
+`apply` argument. `gameplay recent` shows bounded in-memory recent gameplay
+events for one pair. `gameplay trackers` reports tracker sizes only.
+`gameplay cleartrackers` clears transient gameplay state without deleting
+persistent relationships, chat cooldowns, or chat anti-farming state.
 
 ## Traits
 
@@ -297,6 +354,103 @@ clean shutdown, selected player/bot logout, explicit GM save, cache clear, and
 cache eviction. Cache entries expire after the configured idle time and are
 bounded by `MaxCachedEntries`. Dirty entries are saved before eviction.
 
+## Phase 4 Gameplay Relationships
+
+Gameplay events are detected from server hooks and current world state, not from
+chat claims. The tracker validates a bot/player pair, confirms the event family
+is enabled, builds a compact context, applies cooldowns and hourly gameplay
+caps, then reuses the Phase 3 relationship cache and dirty-save path.
+
+Implemented semantic events:
+
+- SharedNormalKill
+- SharedEliteKill
+- SharedBossKill
+- PlayerHealedBot
+- PlayerResurrectedBot
+- BotHealedPlayer
+- BotResurrectedPlayer
+- PlayerDied
+- BotDied
+- SharedDeath
+- GroupWipe
+- PlayerLeftGroupDuringCombat
+- DungeonCompleted
+- RaidEncounterCompleted
+- SustainedTeamwork
+- RepeatedPlayerDeath
+
+Known omitted or conservative events:
+
+- PlayerSavedBot and BotSavedPlayer are not emitted yet. The available hooks do
+  not prove a strict saved-from-death sequence without over-crediting ordinary
+  low-health healing.
+- PlayerCausedDangerousPull is not emitted yet. Threat-start attribution is too
+  approximate in this module-only implementation.
+- PlayerAbandonedCombat is represented only by PlayerLeftGroupDuringCombat when
+  a real player voluntarily leaves an active group while the bot is still
+  combat-relevant.
+- Resurrection attribution is best-effort and requires the resurrect spell to
+  resolve an online player target at cast time.
+
+Participation requires an online Playerbot and an online real player. Most
+events also require a shared group, matching map, allowed PvP state, and
+proximity within `ParticipationDistance`. The tracker stores GUID counters,
+timestamps, source entries, and deltas only; it does not keep long-lived raw
+`Player*`, `Creature*`, or `Unit*` pointers.
+
+Kill classification uses creature state available to the module: dungeon boss,
+world boss, and world-boss rank checks become boss events, elite ranks become
+elite events, and ordinary eligible creature kills become normal events. Normal
+kills are batched before they apply a relationship update. Elite and boss
+events have independent cooldowns to reduce repeat farming.
+
+Healing uses effective heal gain, not overhealing. Heal credit accumulates per
+bot/player/event direction until `HealThreshold` is reached inside
+`HealWindowSeconds`, then starts an event cooldown. Pet and guardian ownership
+is attributed where the live unit owner resolves to a player.
+
+Deaths are tracked in rolling windows per bot/player pair. A single player
+death has a small effect, repeated player deaths can qualify for the stronger
+RepeatedPlayerDeath event, and deaths close together can qualify as SharedDeath.
+GroupWipe is conservative: nearby eligible group members must all be dead and
+the group must meet `MinimumWipeMembers`.
+
+DungeonCompleted is emitted when the instance completion hook reports final
+dungeon completion. RaidEncounterCompleted is emitted for completed raid
+encounter updates. SustainedTeamwork fires infrequently after a pair remains
+grouped for the configured time and is subject to its own cooldown.
+
+Personality scaling is centralized in gameplay delta calculation. Friendly and
+helpful bots value healing, resurrection, and completion more; patient bots
+soften failures; competitive, veteran, confident, and arrogant bots emphasize
+respect; nervous bots react more strongly to trust-building help and
+abandonment-style failures. Scaling is bounded so an event does not invert its
+basic meaning.
+
+Gameplay caps are separate from chat caps. They limit positive gain, negative
+loss, and familiarity gain per bot/player pair per hour, while the final
+relationship values still share the same configured min/max bounds.
+
+## Manual Gameplay Test
+
+Use one online real player and one online Playerbot:
+
+```text
+1. .botpersonality gameplay status
+2. .botpersonality gameplay show BotName PlayerName
+3. Kill fewer normal creatures than NormalKillBatchSize.
+4. Confirm no normal-kill counter change yet.
+5. Reach NormalKillBatchSize and confirm one normal-kill event.
+6. Kill an elite and confirm elite counter and relationship deltas.
+7. Damage the bot in combat and heal less than HealThreshold.
+8. Confirm no healing event, then heal past the threshold and confirm one.
+9. Let the real player die three times inside DeathWindowSeconds.
+10. Confirm RepeatedPlayerDeath appears in gameplay recent output.
+11. Complete a dungeon and confirm DungeonCompleted persists after save.
+12. Use gameplay simulate with and without apply to verify preview behavior.
+```
+
 ## Dialogue Integration
 
 The whisper pipeline is:
@@ -366,10 +520,9 @@ and response text only; they do not hold raw `Player*` pointers.
 
 ## Limitations
 
-Phase 3 is still intentionally template-only and chat-only. It does not call
+The module is still intentionally template-only for language. It does not call
 external services, run background threads, execute SQL from chat, issue
-Playerbots commands, change AI state, store chat history, model mood, react to
-combat, track kills, deaths, healing, resurrection, wipes, boss kills, dungeon
-completion, loot events, leadership, or generate free-form text. Help-request
-replies are conversational only; actual bot control still requires normal
-Playerbots commands.
+Playerbots commands, change AI state, store chat history, model mood, perform
+proactive banter, track loot disputes, track leadership, or generate free-form
+text. Help-request replies are conversational only; actual bot control still
+requires normal Playerbots commands.

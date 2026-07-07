@@ -557,6 +557,78 @@ bool BotRelationshipMgr::PreviewEventDelta(
     return true;
 }
 
+bool BotRelationshipMgr::ApplyGameplayEvent(
+    Player const* bot,
+    Player const* player,
+    BotGameplayEvent event,
+    BotRelationshipDelta const& delta,
+    bool updateCounter)
+{
+    if (!_enabled || !IsValidPair(bot, player, true))
+        return false;
+
+    uint32 const nowSeconds = CurrentGameTimeSeconds();
+    BotPlayerRelationshipKey const key = MakeKey(
+        bot->GetGUID().GetCounter(),
+        player->GetGUID().GetCounter());
+
+    CachedBotRelationship* entry = GetOrCreateEntry(
+        key.botGuid,
+        key.playerGuid,
+        nowSeconds);
+    if (!entry)
+        return false;
+
+    if (!HasAnyDelta(delta) && !updateCounter &&
+        entry->relationship.firstInteraction != 0)
+        return true;
+
+    BotRelationshipLevel const oldLevel = GetRelationshipLevel(
+        entry->relationship.affinity);
+    ApplyDelta(*entry, delta, nowSeconds);
+
+    if (updateCounter)
+    {
+        IncrementGameplayCounter(entry->relationship, event);
+        MarkDirty(*entry, getMSTime());
+    }
+
+    BotRelationshipLevel const newLevel = GetRelationshipLevel(
+        entry->relationship.affinity);
+
+    if (_debugLogging)
+    {
+        LOG_DEBUG(
+            "module.botpersonality.relationship",
+            "Applied gameplay {} bot {} player {} a:{} t:{} r:{} f:{}",
+            BotGameplayEventToString(event),
+            key.botGuid,
+            key.playerGuid,
+            delta.affinity,
+            delta.trust,
+            delta.respect,
+            delta.familiarity);
+    }
+
+    if (oldLevel != newLevel)
+    {
+        if (_debugLogging)
+        {
+            LOG_DEBUG(
+                "module.botpersonality.relationship",
+                "Relationship level bot {} player {} changed {} -> {}",
+                key.botGuid,
+                key.playerGuid,
+                RelationshipLevelToString(oldLevel),
+                RelationshipLevelToString(newLevel));
+        }
+
+        SaveRelationship(*entry);
+    }
+
+    return true;
+}
+
 bool BotRelationshipMgr::SetValue(
     Player const* bot,
     Player const* player,
@@ -730,6 +802,12 @@ std::vector<BotRelationshipListEntry> BotRelationshipMgr::ListRelationships(
     QueryResult result = CharacterDatabase.Query(
         "SELECT `bot_guid`, `player_guid`, `affinity`, `trust`, `respect`, "
         "`familiarity`, `positive_interactions`, `negative_interactions`, "
+        "`shared_normal_kills`, `shared_elite_kills`, "
+        "`shared_boss_kills`, `player_healed_bot_events`, "
+        "`player_resurrected_bot_events`, `bot_healed_player_events`, "
+        "`bot_resurrected_player_events`, `player_deaths`, `bot_deaths`, "
+        "`shared_deaths`, `group_wipes`, `dungeons_completed`, "
+        "`raid_encounters_completed`, `sustained_teamwork_events`, "
         "`first_interaction`, `last_interaction` "
         "FROM `bot_relationship` WHERE `bot_guid` = {} "
         "ORDER BY `affinity` DESC, `last_interaction` DESC LIMIT {}",
@@ -751,8 +829,22 @@ std::vector<BotRelationshipListEntry> BotRelationshipMgr::ListRelationships(
         relationship.familiarity = ClampStorageValue(fields[5].Get<int32>());
         relationship.positiveInteractions = fields[6].Get<uint32>();
         relationship.negativeInteractions = fields[7].Get<uint32>();
-        relationship.firstInteraction = fields[8].Get<uint32>();
-        relationship.lastInteraction = fields[9].Get<uint32>();
+        relationship.sharedNormalKills = fields[8].Get<uint32>();
+        relationship.sharedEliteKills = fields[9].Get<uint32>();
+        relationship.sharedBossKills = fields[10].Get<uint32>();
+        relationship.playerHealedBotEvents = fields[11].Get<uint32>();
+        relationship.playerResurrectedBotEvents = fields[12].Get<uint32>();
+        relationship.botHealedPlayerEvents = fields[13].Get<uint32>();
+        relationship.botResurrectedPlayerEvents = fields[14].Get<uint32>();
+        relationship.playerDeaths = fields[15].Get<uint32>();
+        relationship.botDeaths = fields[16].Get<uint32>();
+        relationship.sharedDeaths = fields[17].Get<uint32>();
+        relationship.groupWipes = fields[18].Get<uint32>();
+        relationship.dungeonsCompleted = fields[19].Get<uint32>();
+        relationship.raidEncountersCompleted = fields[20].Get<uint32>();
+        relationship.sustainedTeamworkEvents = fields[21].Get<uint32>();
+        relationship.firstInteraction = fields[22].Get<uint32>();
+        relationship.lastInteraction = fields[23].Get<uint32>();
 
         if (relationship.botGuid != botGuid || !relationship.playerGuid)
             continue;
@@ -965,6 +1057,12 @@ BotRelationshipMgr::LoadResult BotRelationshipMgr::LoadRelationship(
     QueryResult result = CharacterDatabase.Query(
         "SELECT `bot_guid`, `player_guid`, `affinity`, `trust`, `respect`, "
         "`familiarity`, `positive_interactions`, `negative_interactions`, "
+        "`shared_normal_kills`, `shared_elite_kills`, "
+        "`shared_boss_kills`, `player_healed_bot_events`, "
+        "`player_resurrected_bot_events`, `bot_healed_player_events`, "
+        "`bot_resurrected_player_events`, `player_deaths`, `bot_deaths`, "
+        "`shared_deaths`, `group_wipes`, `dungeons_completed`, "
+        "`raid_encounters_completed`, `sustained_teamwork_events`, "
         "`first_interaction`, `last_interaction` "
         "FROM `bot_relationship` WHERE `bot_guid` = {} "
         "AND `player_guid` = {} LIMIT 2",
@@ -992,8 +1090,22 @@ BotRelationshipMgr::LoadResult BotRelationshipMgr::LoadRelationship(
     relationship.familiarity = ClampStorageValue(fields[5].Get<int32>());
     relationship.positiveInteractions = fields[6].Get<uint32>();
     relationship.negativeInteractions = fields[7].Get<uint32>();
-    relationship.firstInteraction = fields[8].Get<uint32>();
-    relationship.lastInteraction = fields[9].Get<uint32>();
+    relationship.sharedNormalKills = fields[8].Get<uint32>();
+    relationship.sharedEliteKills = fields[9].Get<uint32>();
+    relationship.sharedBossKills = fields[10].Get<uint32>();
+    relationship.playerHealedBotEvents = fields[11].Get<uint32>();
+    relationship.playerResurrectedBotEvents = fields[12].Get<uint32>();
+    relationship.botHealedPlayerEvents = fields[13].Get<uint32>();
+    relationship.botResurrectedPlayerEvents = fields[14].Get<uint32>();
+    relationship.playerDeaths = fields[15].Get<uint32>();
+    relationship.botDeaths = fields[16].Get<uint32>();
+    relationship.sharedDeaths = fields[17].Get<uint32>();
+    relationship.groupWipes = fields[18].Get<uint32>();
+    relationship.dungeonsCompleted = fields[19].Get<uint32>();
+    relationship.raidEncountersCompleted = fields[20].Get<uint32>();
+    relationship.sustainedTeamworkEvents = fields[21].Get<uint32>();
+    relationship.firstInteraction = fields[22].Get<uint32>();
+    relationship.lastInteraction = fields[23].Get<uint32>();
 
     if (relationship.botGuid != botGuid ||
         relationship.playerGuid != playerGuid)
@@ -1026,8 +1138,15 @@ void BotRelationshipMgr::SaveRelationship(CachedBotRelationship& entry)
         "REPLACE INTO `bot_relationship` "
         "(`bot_guid`, `player_guid`, `affinity`, `trust`, `respect`, "
         "`familiarity`, `positive_interactions`, `negative_interactions`, "
+        "`shared_normal_kills`, `shared_elite_kills`, "
+        "`shared_boss_kills`, `player_healed_bot_events`, "
+        "`player_resurrected_bot_events`, `bot_healed_player_events`, "
+        "`bot_resurrected_player_events`, `player_deaths`, `bot_deaths`, "
+        "`shared_deaths`, `group_wipes`, `dungeons_completed`, "
+        "`raid_encounters_completed`, `sustained_teamwork_events`, "
         "`first_interaction`, `last_interaction`) VALUES "
-        "({}, {}, {}, {}, {}, {}, {}, {}, {}, {})",
+        "({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, "
+        "{}, {}, {}, {}, {}, {}, {}, {})",
         relationship.botGuid,
         relationship.playerGuid,
         static_cast<int32>(relationship.affinity),
@@ -1036,6 +1155,20 @@ void BotRelationshipMgr::SaveRelationship(CachedBotRelationship& entry)
         static_cast<int32>(relationship.familiarity),
         relationship.positiveInteractions,
         relationship.negativeInteractions,
+        relationship.sharedNormalKills,
+        relationship.sharedEliteKills,
+        relationship.sharedBossKills,
+        relationship.playerHealedBotEvents,
+        relationship.playerResurrectedBotEvents,
+        relationship.botHealedPlayerEvents,
+        relationship.botResurrectedPlayerEvents,
+        relationship.playerDeaths,
+        relationship.botDeaths,
+        relationship.sharedDeaths,
+        relationship.groupWipes,
+        relationship.dungeonsCompleted,
+        relationship.raidEncountersCompleted,
+        relationship.sustainedTeamworkEvents,
         relationship.firstInteraction,
         relationship.lastInteraction);
 
@@ -1104,6 +1237,61 @@ BotRelationship BotRelationshipMgr::CreateNeutralRelationship(
     relationship.firstInteraction = nowSeconds;
     relationship.lastInteraction = nowSeconds;
     return relationship;
+}
+
+void BotRelationshipMgr::IncrementGameplayCounter(
+    BotRelationship& relationship,
+    BotGameplayEvent event)
+{
+    switch (event)
+    {
+        case BotGameplayEvent::SharedNormalKill:
+            ++relationship.sharedNormalKills;
+            break;
+        case BotGameplayEvent::SharedEliteKill:
+            ++relationship.sharedEliteKills;
+            break;
+        case BotGameplayEvent::SharedBossKill:
+            ++relationship.sharedBossKills;
+            break;
+        case BotGameplayEvent::PlayerHealedBot:
+            ++relationship.playerHealedBotEvents;
+            break;
+        case BotGameplayEvent::PlayerResurrectedBot:
+            ++relationship.playerResurrectedBotEvents;
+            break;
+        case BotGameplayEvent::BotHealedPlayer:
+            ++relationship.botHealedPlayerEvents;
+            break;
+        case BotGameplayEvent::BotResurrectedPlayer:
+            ++relationship.botResurrectedPlayerEvents;
+            break;
+        case BotGameplayEvent::PlayerDied:
+            ++relationship.playerDeaths;
+            break;
+        case BotGameplayEvent::BotDied:
+            ++relationship.botDeaths;
+            break;
+        case BotGameplayEvent::SharedDeath:
+            ++relationship.sharedDeaths;
+            break;
+        case BotGameplayEvent::GroupWipe:
+            ++relationship.groupWipes;
+            break;
+        case BotGameplayEvent::PlayerLeftGroupDuringCombat:
+            break;
+        case BotGameplayEvent::DungeonCompleted:
+            ++relationship.dungeonsCompleted;
+            break;
+        case BotGameplayEvent::RaidEncounterCompleted:
+            ++relationship.raidEncountersCompleted;
+            break;
+        case BotGameplayEvent::SustainedTeamwork:
+            ++relationship.sustainedTeamworkEvents;
+            break;
+        case BotGameplayEvent::RepeatedPlayerDeath:
+            break;
+    }
 }
 
 int16 BotRelationshipMgr::ClampStorageValue(int32 value) const

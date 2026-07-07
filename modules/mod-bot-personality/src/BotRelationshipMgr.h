@@ -1,6 +1,7 @@
 #ifndef MOD_BOT_PERSONALITY_BOT_RELATIONSHIP_MGR_H
 #define MOD_BOT_PERSONALITY_BOT_RELATIONSHIP_MGR_H
 
+#include "BotGameplayEvent.h"
 #include "BotRelationship.h"
 #include "ObjectGuid.h"
 
@@ -48,6 +49,12 @@ public:
         BotRelationshipEvent event,
         BotRelationshipDelta& baseDelta,
         BotRelationshipDelta& adjustedDelta) const;
+    bool ApplyGameplayEvent(
+        Player const* bot,
+        Player const* player,
+        BotGameplayEvent event,
+        BotRelationshipDelta const& delta,
+        bool updateCounter);
 
     bool SetValue(
         Player const* bot,
@@ -149,6 +156,9 @@ private:
         uint32 botGuid,
         uint32 playerGuid,
         uint32 nowSeconds) const;
+    void IncrementGameplayCounter(
+        BotRelationship& relationship,
+        BotGameplayEvent event);
 
     int16 ClampStorageValue(int32 value) const;
     bool SetRelationshipField(

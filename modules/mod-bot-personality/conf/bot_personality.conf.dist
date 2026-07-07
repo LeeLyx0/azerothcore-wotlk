@@ -98,6 +98,172 @@ BotPersonality.Relationship.SpamTrust = -1
 BotPersonality.Relationship.SpamRespect = -1
 
 ##################################################
+# BOT PERSONALITY GAMEPLAY CONFIGURATION         #
+##################################################
+
+# Enable gameplay-driven relationship tracking.
+# Default: 1
+BotPersonality.Gameplay.Enable = 1
+
+# Apply detected gameplay events to persistent relationships.
+# Disable to keep debug tracking without changing relationship values.
+# Default: 1
+BotPersonality.Gameplay.UpdateRelationships = 1
+
+# Enable extra diagnostics for gameplay event detection and deltas.
+# Default: 0
+BotPersonality.Gameplay.DebugLogging = 0
+
+# Enable/disable event families.
+BotPersonality.Gameplay.TrackNormalKills = 1
+BotPersonality.Gameplay.TrackEliteKills = 1
+BotPersonality.Gameplay.TrackBossKills = 1
+BotPersonality.Gameplay.TrackHealing = 1
+BotPersonality.Gameplay.TrackResurrection = 1
+BotPersonality.Gameplay.TrackDeaths = 1
+BotPersonality.Gameplay.TrackGroupWipes = 1
+BotPersonality.Gameplay.TrackGroupLeaves = 1
+BotPersonality.Gameplay.TrackEncounterCompletion = 1
+BotPersonality.Gameplay.TrackSustainedTeamwork = 1
+
+# Track battleground/arena PvP events. Disabled by default to avoid noisy
+# relationship changes from PvP deaths and heals.
+# Default: 0
+BotPersonality.Gameplay.AllowPvPEvents = 0
+
+# Maximum distance for shared kill, heal, death, and wipe participation.
+# Valid range: 10-500
+# Default: 120
+BotPersonality.Gameplay.ParticipationDistance = 120
+
+# Normal kills are batched to reduce trash-farming value.
+# Valid ranges: batch 1-50, window 5-3600 seconds
+BotPersonality.Gameplay.NormalKillBatchSize = 3
+BotPersonality.Gameplay.NormalKillWindowSeconds = 300
+
+# Healing must accumulate this much effective healing in the window before a
+# relationship event is applied.
+# Valid ranges: threshold 1-100000, window 1-300 seconds
+BotPersonality.Gameplay.HealThreshold = 500
+BotPersonality.Gameplay.HealWindowSeconds = 20
+
+# Death window used for shared deaths and repeated player deaths.
+# Valid ranges: window 5-3600 seconds, threshold 2-20 deaths
+BotPersonality.Gameplay.DeathWindowSeconds = 120
+BotPersonality.Gameplay.RepeatedDeathThreshold = 3
+
+# Time grouped together before a sustained-teamwork event can fire.
+# Valid range: 60-86400 seconds
+# Default: 1200
+BotPersonality.Gameplay.SustainedTeamworkSeconds = 1200
+
+# Minimum nearby group members that must all be dead for a group wipe event.
+# Valid range: 2-40
+# Default: 3
+BotPersonality.Gameplay.MinimumWipeMembers = 3
+
+# Rolling in-memory one-hour caps per bot/player pair.
+# Server restart resets these caps, but persisted relationships remain.
+# Valid range: 0-10000
+BotPersonality.Gameplay.MaxPositiveGainPerHour = 40
+BotPersonality.Gameplay.MaxNegativeLossPerHour = 50
+BotPersonality.Gameplay.MaxFamiliarityGainPerHour = 60
+
+# Per-pair event cooldowns in seconds.
+BotPersonality.Gameplay.NormalKillCooldownSeconds = 60
+BotPersonality.Gameplay.EliteKillCooldownSeconds = 90
+BotPersonality.Gameplay.BossKillCooldownSeconds = 300
+BotPersonality.Gameplay.HealCooldownSeconds = 45
+BotPersonality.Gameplay.ResurrectionCooldownSeconds = 300
+BotPersonality.Gameplay.DeathCooldownSeconds = 90
+BotPersonality.Gameplay.WipeCooldownSeconds = 300
+BotPersonality.Gameplay.GroupLeaveCooldownSeconds = 300
+BotPersonality.Gameplay.EncounterCooldownSeconds = 600
+BotPersonality.Gameplay.TeamworkCooldownSeconds = 1200
+
+# Base gameplay event effects. Personality may scale these bounded deltas.
+# Valid range for each value: -100 to 100
+BotPersonality.Gameplay.SharedNormalKillAffinity = 1
+BotPersonality.Gameplay.SharedNormalKillTrust = 0
+BotPersonality.Gameplay.SharedNormalKillRespect = 1
+BotPersonality.Gameplay.SharedNormalKillFamiliarity = 1
+
+BotPersonality.Gameplay.SharedEliteKillAffinity = 2
+BotPersonality.Gameplay.SharedEliteKillTrust = 1
+BotPersonality.Gameplay.SharedEliteKillRespect = 2
+BotPersonality.Gameplay.SharedEliteKillFamiliarity = 2
+
+BotPersonality.Gameplay.SharedBossKillAffinity = 5
+BotPersonality.Gameplay.SharedBossKillTrust = 3
+BotPersonality.Gameplay.SharedBossKillRespect = 5
+BotPersonality.Gameplay.SharedBossKillFamiliarity = 3
+
+BotPersonality.Gameplay.PlayerHealedBotAffinity = 3
+BotPersonality.Gameplay.PlayerHealedBotTrust = 3
+BotPersonality.Gameplay.PlayerHealedBotRespect = 1
+BotPersonality.Gameplay.PlayerHealedBotFamiliarity = 2
+
+BotPersonality.Gameplay.PlayerResurrectedBotAffinity = 6
+BotPersonality.Gameplay.PlayerResurrectedBotTrust = 5
+BotPersonality.Gameplay.PlayerResurrectedBotRespect = 2
+BotPersonality.Gameplay.PlayerResurrectedBotFamiliarity = 4
+
+BotPersonality.Gameplay.BotHealedPlayerAffinity = 1
+BotPersonality.Gameplay.BotHealedPlayerTrust = 1
+BotPersonality.Gameplay.BotHealedPlayerRespect = 1
+BotPersonality.Gameplay.BotHealedPlayerFamiliarity = 2
+
+BotPersonality.Gameplay.BotResurrectedPlayerAffinity = 2
+BotPersonality.Gameplay.BotResurrectedPlayerTrust = 2
+BotPersonality.Gameplay.BotResurrectedPlayerRespect = 1
+BotPersonality.Gameplay.BotResurrectedPlayerFamiliarity = 3
+
+BotPersonality.Gameplay.PlayerDiedAffinity = -1
+BotPersonality.Gameplay.PlayerDiedTrust = -1
+BotPersonality.Gameplay.PlayerDiedRespect = -2
+BotPersonality.Gameplay.PlayerDiedFamiliarity = 1
+
+BotPersonality.Gameplay.BotDiedAffinity = -2
+BotPersonality.Gameplay.BotDiedTrust = -2
+BotPersonality.Gameplay.BotDiedRespect = -1
+BotPersonality.Gameplay.BotDiedFamiliarity = 1
+
+BotPersonality.Gameplay.SharedDeathAffinity = -1
+BotPersonality.Gameplay.SharedDeathTrust = 0
+BotPersonality.Gameplay.SharedDeathRespect = -1
+BotPersonality.Gameplay.SharedDeathFamiliarity = 2
+
+BotPersonality.Gameplay.GroupWipeAffinity = -3
+BotPersonality.Gameplay.GroupWipeTrust = -3
+BotPersonality.Gameplay.GroupWipeRespect = -3
+BotPersonality.Gameplay.GroupWipeFamiliarity = 2
+
+BotPersonality.Gameplay.PlayerLeftGroupDuringCombatAffinity = -8
+BotPersonality.Gameplay.PlayerLeftGroupDuringCombatTrust = -6
+BotPersonality.Gameplay.PlayerLeftGroupDuringCombatRespect = -4
+BotPersonality.Gameplay.PlayerLeftGroupDuringCombatFamiliarity = 0
+
+BotPersonality.Gameplay.DungeonCompletedAffinity = 8
+BotPersonality.Gameplay.DungeonCompletedTrust = 4
+BotPersonality.Gameplay.DungeonCompletedRespect = 8
+BotPersonality.Gameplay.DungeonCompletedFamiliarity = 6
+
+BotPersonality.Gameplay.RaidEncounterCompletedAffinity = 6
+BotPersonality.Gameplay.RaidEncounterCompletedTrust = 3
+BotPersonality.Gameplay.RaidEncounterCompletedRespect = 6
+BotPersonality.Gameplay.RaidEncounterCompletedFamiliarity = 4
+
+BotPersonality.Gameplay.SustainedTeamworkAffinity = 2
+BotPersonality.Gameplay.SustainedTeamworkTrust = 2
+BotPersonality.Gameplay.SustainedTeamworkRespect = 1
+BotPersonality.Gameplay.SustainedTeamworkFamiliarity = 4
+
+BotPersonality.Gameplay.RepeatedPlayerDeathAffinity = -3
+BotPersonality.Gameplay.RepeatedPlayerDeathTrust = -2
+BotPersonality.Gameplay.RepeatedPlayerDeathRespect = -4
+BotPersonality.Gameplay.RepeatedPlayerDeathFamiliarity = 1
+
+##################################################
 # BOT PERSONALITY CHAT CONFIGURATION             #
 ##################################################
 

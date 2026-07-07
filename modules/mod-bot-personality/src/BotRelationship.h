@@ -44,6 +44,21 @@ struct BotRelationship
     uint32 positiveInteractions = 0;
     uint32 negativeInteractions = 0;
 
+    uint32 sharedNormalKills = 0;
+    uint32 sharedEliteKills = 0;
+    uint32 sharedBossKills = 0;
+    uint32 playerHealedBotEvents = 0;
+    uint32 playerResurrectedBotEvents = 0;
+    uint32 botHealedPlayerEvents = 0;
+    uint32 botResurrectedPlayerEvents = 0;
+    uint32 playerDeaths = 0;
+    uint32 botDeaths = 0;
+    uint32 sharedDeaths = 0;
+    uint32 groupWipes = 0;
+    uint32 dungeonsCompleted = 0;
+    uint32 raidEncountersCompleted = 0;
+    uint32 sustainedTeamworkEvents = 0;
+
     uint32 firstInteraction = 0;
     uint32 lastInteraction = 0;
 };
