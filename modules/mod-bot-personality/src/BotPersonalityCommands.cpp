@@ -2,7 +2,10 @@
 
 #include "BotDialogueMgr.h"
 #include "BotGameplayTracker.h"
+#include "BotMoodMgr.h"
 #include "BotRelationshipMgr.h"
+#include "BotProactiveDialogueMgr.h"
+#include "BotProactiveDialogueEvent.h"
 #include "CharacterCache.h"
 #include "Chat.h"
 #include "CommandScript.h"
@@ -143,6 +146,37 @@ Player* FindOnlineRealPlayer(ChatHandler* handler, std::string playerName)
     return player;
 }
 
+Player* FindOnlineAnyCharacter(ChatHandler* handler, std::string name)
+{
+    if (name.empty())
+    {
+        Send(handler, "Character name is required.");
+        return nullptr;
+    }
+
+    if (!normalizePlayerName(name))
+    {
+        Send(handler, "Invalid character name '{}'.", name);
+        return nullptr;
+    }
+
+    ObjectGuid const guid = sCharacterCache->GetCharacterGuidByName(name);
+    if (guid.IsEmpty())
+    {
+        Send(handler, "Character '{}' was not found.", name);
+        return nullptr;
+    }
+
+    Player* player = ObjectAccessor::FindConnectedPlayer(guid);
+    if (!player)
+    {
+        Send(handler, "Character '{}' is not online.", name);
+        return nullptr;
+    }
+
+    return player;
+}
+
 int32 TraitValue(BotPersonality const& personality, std::string const& trait)
 {
     if (trait == "friendliness")
@@ -220,6 +254,8 @@ void SendRootUsage(ChatHandler* handler)
     Send(handler, "Usage: .botpersonality chat");
     Send(handler, "Usage: .botpersonality relationship");
     Send(handler, "Usage: .botpersonality gameplay");
+    Send(handler, "Usage: .botpersonality mood");
+    Send(handler, "Usage: .botpersonality proactive");
 }
 
 void SendChatUsage(ChatHandler* handler)
@@ -270,6 +306,36 @@ void SendGameplayUsage(ChatHandler* handler)
         "Usage: .botpersonality gameplay recent <botName> <playerName>");
     Send(handler, "Usage: .botpersonality gameplay trackers");
     Send(handler, "Usage: .botpersonality gameplay cleartrackers");
+}
+
+void SendMoodUsage(ChatHandler* handler)
+{
+    Send(handler, "Usage: .botpersonality mood show <botName>");
+    Send(handler, "Usage: .botpersonality mood set <botName> <field> <value>");
+    Send(
+        handler,
+        "Usage: .botpersonality mood adjust <botName> <field> <amount>");
+    Send(handler, "Usage: .botpersonality mood reset <botName>");
+    Send(handler, "Usage: .botpersonality mood apply <botName> <event>");
+    Send(handler, "Usage: .botpersonality mood list");
+    Send(handler, "Usage: .botpersonality mood clearcache");
+}
+
+void SendProactiveUsage(ChatHandler* handler)
+{
+    Send(handler, "Usage: .botpersonality proactive status");
+    Send(
+        handler,
+        "Usage: .botpersonality proactive simulate <botName> <event> "
+        "[playerName]");
+    Send(handler, "Usage: .botpersonality proactive queue");
+    Send(handler, "Usage: .botpersonality proactive group <playerOrBot>");
+    Send(handler, "Usage: .botpersonality proactive clearqueue");
+    Send(handler, "Usage: .botpersonality proactive clearcooldowns");
+    Send(
+        handler,
+        "Usage: .botpersonality proactive force <botName> <event> "
+        "[playerName]");
 }
 
 std::string TrimArgs(char const* args)
@@ -325,6 +391,42 @@ bool ParseGameplayEventArg(
     return false;
 }
 
+bool ParseMoodEventArg(
+    ChatHandler* handler,
+    std::string const& text,
+    BotMoodEvent& event)
+{
+    if (BotMoodEventFromString(text, event))
+        return true;
+
+    Send(handler, "Invalid mood event '{}'.", text);
+    Send(
+        handler,
+        "Supported events include greeting, thanks, praise, insult, apology, "
+        "normal, elite, boss, healed, resurrected, playerdied, botdied, "
+        "repeateddeath, wipe, dungeon, raid, lowhealth, criticalhealth, "
+        "lowmana, inactivity, teamwork.");
+    return false;
+}
+
+bool ParseProactiveEventArg(
+    ChatHandler* handler,
+    std::string const& text,
+    BotProactiveDialogueEvent& event)
+{
+    if (BotProactiveDialogueEventFromString(text, event))
+        return true;
+
+    Send(handler, "Invalid proactive event '{}'.", text);
+    Send(
+        handler,
+        "Supported events include join, dungeon, elite, boss, healed, "
+        "resurrected, playerdied, repeateddeath, botdied, wipe, raid, "
+        "abandon, lowhealth, criticalhealth, lowmana, inactivity, teamwork, "
+        "banter.");
+    return false;
+}
+
 void SendDelta(
     ChatHandler* handler,
     std::string_view label,
@@ -338,6 +440,37 @@ void SendDelta(
         delta.trust,
         delta.respect,
         delta.familiarity);
+}
+
+void SendMoodDelta(
+    ChatHandler* handler,
+    std::string_view label,
+    BotMoodDelta const& delta)
+{
+    Send(handler, "{} mood delta:", label);
+    Send(handler, "Happiness {:+}", delta.happiness);
+    Send(handler, "Frustration {:+}", delta.frustration);
+    Send(handler, "Mood confidence {:+}", delta.moodConfidence);
+    Send(handler, "Fear {:+}", delta.fear);
+    Send(handler, "Excitement {:+}", delta.excitement);
+    Send(handler, "Boredom {:+}", delta.boredom);
+}
+
+void SendMoodValues(
+    ChatHandler* handler,
+    std::string_view label,
+    BotMood const& mood)
+{
+    Send(handler, "{}:", label);
+    Send(handler, "Happiness: {}", static_cast<int32>(mood.happiness));
+    Send(handler, "Frustration: {}", static_cast<int32>(mood.frustration));
+    Send(
+        handler,
+        "Mood confidence: {}",
+        static_cast<int32>(mood.moodConfidence));
+    Send(handler, "Fear: {}", static_cast<int32>(mood.fear));
+    Send(handler, "Excitement: {}", static_cast<int32>(mood.excitement));
+    Send(handler, "Boredom: {}", static_cast<int32>(mood.boredom));
 }
 
 void SendDialogueDebugResult(
@@ -470,6 +603,8 @@ public:
             { "reload", HandleReloadCommand, SEC_GAMEMASTER, Console::Yes },
             { "relationship", GetRelationshipCommandTable() },
             { "gameplay", GetGameplayCommandTable() },
+            { "mood", GetMoodCommandTable() },
+            { "proactive", GetProactiveCommandTable() },
             {
                 "clearcache",
                 HandleClearCacheCommand,
@@ -607,6 +742,85 @@ public:
         return gameplayCommandTable;
     }
 
+    static ChatCommandTable const& GetMoodCommandTable()
+    {
+        static ChatCommandTable moodCommandTable =
+        {
+            { "show", HandleMoodShowCommand, SEC_GAMEMASTER, Console::Yes },
+            { "set", HandleMoodSetCommand, SEC_GAMEMASTER, Console::Yes },
+            {
+                "adjust",
+                HandleMoodAdjustCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            { "reset", HandleMoodResetCommand, SEC_GAMEMASTER, Console::Yes },
+            { "apply", HandleMoodApplyCommand, SEC_GAMEMASTER, Console::Yes },
+            { "list", HandleMoodListCommand, SEC_GAMEMASTER, Console::Yes },
+            {
+                "clearcache",
+                HandleMoodClearCacheCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            { "", HandleMoodHelpCommand, SEC_GAMEMASTER, Console::Yes }
+        };
+
+        return moodCommandTable;
+    }
+
+    static ChatCommandTable const& GetProactiveCommandTable()
+    {
+        static ChatCommandTable proactiveCommandTable =
+        {
+            {
+                "status",
+                HandleProactiveStatusCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "simulate",
+                HandleProactiveSimulateCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "queue",
+                HandleProactiveQueueCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "group",
+                HandleProactiveGroupCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            {
+                "clearqueue",
+                HandleProactiveClearQueueCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            {
+                "clearcooldowns",
+                HandleProactiveClearCooldownsCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            {
+                "force",
+                HandleProactiveForceCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            { "", HandleProactiveHelpCommand, SEC_GAMEMASTER, Console::Yes }
+        };
+
+        return proactiveCommandTable;
+    }
+
     static bool HandleHelpCommand(ChatHandler* handler, char const* /*args*/)
     {
         SendRootUsage(handler);
@@ -634,6 +848,22 @@ public:
         char const* /*args*/)
     {
         SendGameplayUsage(handler);
+        return true;
+    }
+
+    static bool HandleMoodHelpCommand(
+        ChatHandler* handler,
+        char const* /*args*/)
+    {
+        SendMoodUsage(handler);
+        return true;
+    }
+
+    static bool HandleProactiveHelpCommand(
+        ChatHandler* handler,
+        char const* /*args*/)
+    {
+        SendProactiveUsage(handler);
         return true;
     }
 
@@ -1594,6 +1824,481 @@ public:
 
         sBotGameplayTracker.ClearTrackers();
         Send(handler, "Bot Personality gameplay trackers cleared.");
+        return true;
+    }
+
+    static bool HandleMoodShowCommand(ChatHandler* handler, char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 1)
+        {
+            Send(handler, "Usage: .botpersonality mood show <botName>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        BotMood const* mood = sBotMoodMgr.GetMood(bot);
+        if (!mood)
+        {
+            Send(handler, "Unable to load mood for '{}'.", bot->GetName());
+            return true;
+        }
+
+        BotMood const baseline = sBotMoodMgr.GetBaseline(bot);
+        Send(handler, "Bot: {}", bot->GetName());
+        SendMoodValues(handler, "Current mood", *mood);
+        Send(
+            handler,
+            "Dominant mood: {}",
+            BotDominantMoodToString(GetDominantMood(*mood, baseline)));
+        Send(
+            handler,
+            "Mood intensity: {}",
+            static_cast<uint32>(GetMoodIntensity(*mood, baseline)));
+        SendMoodValues(handler, "Baseline", baseline);
+        return true;
+    }
+
+    static bool HandleMoodSetCommand(ChatHandler* handler, char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 3)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality mood set <botName> <field> <value>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        int32 value = 0;
+        if (!TryParseInt32(tokens[2], value))
+        {
+            Send(handler, "Invalid mood value '{}'.", tokens[2]);
+            return false;
+        }
+
+        if (!sBotMoodMgr.SetMoodField(bot, tokens[1], value))
+        {
+            Send(
+                handler,
+                "Invalid mood field '{}'. Use happiness, frustration, "
+                "confidence, fear, excitement, or boredom. Confidence means "
+                "temporary mood confidence here.",
+                tokens[1]);
+            return false;
+        }
+
+        Send(handler, "Mood field '{}' updated for {}.", tokens[1],
+            bot->GetName());
+        return true;
+    }
+
+    static bool HandleMoodAdjustCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 3)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality mood adjust <botName> <field> "
+                "<amount>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        int32 amount = 0;
+        if (!TryParseInt32(tokens[2], amount))
+        {
+            Send(handler, "Invalid mood amount '{}'.", tokens[2]);
+            return false;
+        }
+
+        if (!sBotMoodMgr.AdjustMoodField(bot, tokens[1], amount))
+        {
+            Send(
+                handler,
+                "Invalid mood field '{}'. Use happiness, frustration, "
+                "confidence, fear, excitement, or boredom.",
+                tokens[1]);
+            return false;
+        }
+
+        Send(handler, "Mood field '{}' adjusted for {}.", tokens[1],
+            bot->GetName());
+        return true;
+    }
+
+    static bool HandleMoodResetCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 1)
+        {
+            Send(handler, "Usage: .botpersonality mood reset <botName>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        if (!sBotMoodMgr.ResetMood(bot))
+        {
+            Send(handler, "Unable to reset mood for '{}'.", bot->GetName());
+            return true;
+        }
+
+        Send(handler, "Mood reset to personality baseline for {}.",
+            bot->GetName());
+        return true;
+    }
+
+    static bool HandleMoodApplyCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 2)
+        {
+            Send(handler, "Usage: .botpersonality mood apply <botName> <event>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        BotMoodEvent event;
+        if (!ParseMoodEventArg(handler, tokens[1], event))
+            return false;
+
+        BotMoodDebugResult const result =
+            sBotMoodMgr.PreviewMoodEvent(bot, event, true);
+        if (!result.success)
+        {
+            Send(
+                handler,
+                result.error.empty() ? "Unable to apply mood event." :
+                    result.error);
+            return true;
+        }
+
+        Send(handler, "Event: {}", BotMoodEventToString(event));
+        SendMoodDelta(handler, "Base", result.baseDelta);
+        SendMoodDelta(handler, "Personality-adjusted",
+            result.adjustedDelta);
+        SendMoodValues(handler, "Mood after apply", result.after);
+        Send(handler, "Applied successfully.");
+        return true;
+    }
+
+    static bool HandleMoodListCommand(ChatHandler* handler, char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality mood list");
+            return false;
+        }
+
+        BotMoodCacheStats const stats = sBotMoodMgr.GetStats();
+        Send(handler, "Mood cache entries: {}", stats.cachedBots);
+        Send(handler, "Mood event dedup entries: {}",
+            stats.eventDedupEntries);
+
+        std::vector<BotMoodListEntry> entries = sBotMoodMgr.ListMoods(20);
+        for (BotMoodListEntry const& entry : entries)
+        {
+            Send(
+                handler,
+                "{} | {} | intensity {} | h:{} f:{} c:{} fear:{} e:{} b:{}",
+                entry.botName,
+                BotDominantMoodToString(entry.dominantMood),
+                static_cast<uint32>(entry.intensity),
+                static_cast<int32>(entry.mood.happiness),
+                static_cast<int32>(entry.mood.frustration),
+                static_cast<int32>(entry.mood.moodConfidence),
+                static_cast<int32>(entry.mood.fear),
+                static_cast<int32>(entry.mood.excitement),
+                static_cast<int32>(entry.mood.boredom));
+        }
+
+        return true;
+    }
+
+    static bool HandleMoodClearCacheCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality mood clearcache");
+            return false;
+        }
+
+        sBotMoodMgr.ClearCache();
+        Send(handler, "Bot Personality mood cache cleared.");
+        return true;
+    }
+
+    static bool HandleProactiveStatusCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality proactive status");
+            return false;
+        }
+
+        BotProactiveDialogueStats const stats =
+            sBotProactiveDialogueMgr.GetStats();
+        Send(handler, "Proactive chat enabled: {}",
+            stats.enabled ? "Yes" : "No");
+        Send(handler, "Party chat: {}",
+            stats.partyChat ? "Enabled" : "Disabled");
+        Send(handler, "Raid chat: {}",
+            stats.raidChat ? "Enabled" : "Disabled");
+        Send(handler, "Say: {}", stats.say ? "Enabled" : "Disabled");
+        Send(handler, "Bot banter: {}",
+            stats.botBanter ? "Enabled" : "Disabled");
+        Send(handler, "Real player required: {}",
+            stats.requireRealPlayer ? "Yes" : "No");
+        Send(handler, "Queued events: {}", stats.queuedEvents);
+        Send(handler, "Tracked bots: {}", stats.trackedBots);
+        Send(handler, "Groups with dialogue state: {}",
+            stats.coordinator.groupStates);
+        Send(handler, "Bot cooldown entries: {}",
+            stats.coordinator.botCooldowns);
+        Send(handler, "Group cooldown entries: {}",
+            stats.coordinator.groupCooldowns);
+        Send(handler, "Event cooldown entries: {}",
+            stats.coordinator.eventCooldowns);
+        return true;
+    }
+
+    static bool HandleProactiveSimulateCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() < 2 || tokens.size() > 3)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality proactive simulate <botName> "
+                "<event> [playerName]");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        BotProactiveDialogueEvent event;
+        if (!ParseProactiveEventArg(handler, tokens[1], event))
+            return false;
+
+        Player* player = nullptr;
+        if (tokens.size() == 3)
+        {
+            player = FindOnlineRealPlayer(handler, tokens[2]);
+            if (!player)
+                return true;
+        }
+
+        BotProactiveDialogueDebugResult const result =
+            sBotProactiveDialogueMgr.SimulateDialogue(
+                bot,
+                player,
+                event,
+                false,
+                true);
+        if (!result.success)
+        {
+            Send(
+                handler,
+                result.error.empty() ? "Unable to simulate dialogue." :
+                    result.error);
+            return true;
+        }
+
+        Send(handler, "Bot: {}", result.context.botName);
+        Send(handler, "Player: {}", result.context.playerName.empty() ?
+            "none" : result.context.playerName);
+        Send(handler, "Event: {}",
+            BotProactiveDialogueEventToString(result.context.event));
+        Send(handler, "Priority: {}",
+            BotDialoguePriorityToString(result.context.priority));
+        Send(
+            handler,
+            "Archetype: {}",
+            BotPersonalityArchetypeToString(
+                result.context.personality.archetype));
+        Send(handler, "Dominant mood: {}",
+            BotDominantMoodToString(result.context.dominantMood));
+        Send(handler, "Relationship: {}",
+            RelationshipLevelToString(result.context.relationshipLevel));
+        Send(handler, "Tone: {}",
+            BotResponseToneToString(result.context.tone));
+        Send(handler, "Base chance: {}%", result.baseChance);
+        Send(handler, "Adjusted chance: {}%", result.adjustedChance);
+        Send(handler, "Selected response: \"{}\"", result.response);
+        return true;
+    }
+
+    static bool HandleProactiveForceCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() < 2 || tokens.size() > 3)
+        {
+            Send(
+                handler,
+                "Usage: .botpersonality proactive force <botName> <event> "
+                "[playerName]");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        BotProactiveDialogueEvent event;
+        if (!ParseProactiveEventArg(handler, tokens[1], event))
+            return false;
+
+        Player* player = nullptr;
+        if (tokens.size() == 3)
+        {
+            player = FindOnlineRealPlayer(handler, tokens[2]);
+            if (!player)
+                return true;
+        }
+
+        BotProactiveDialogueDebugResult const result =
+            sBotProactiveDialogueMgr.SimulateDialogue(
+                bot,
+                player,
+                event,
+                true,
+                true);
+        if (!result.success)
+        {
+            Send(
+                handler,
+                result.error.empty() ? "Unable to force dialogue." :
+                    result.error);
+            return true;
+        }
+
+        Send(handler, "Forced proactive message sent: \"{}\"",
+            result.response);
+        return true;
+    }
+
+    static bool HandleProactiveQueueCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality proactive queue");
+            return false;
+        }
+
+        std::vector<BotProactiveQueueEntry> entries =
+            sBotProactiveDialogueMgr.GetQueue(20);
+        Send(handler, "Queued proactive events: {}", entries.size());
+        for (BotProactiveQueueEntry const& entry : entries)
+        {
+            Send(
+                handler,
+                "Group {} | {} | {} | bot {} player {} | age {} ms | "
+                "delay {} ms",
+                entry.groupId,
+                BotProactiveDialogueEventToString(entry.event),
+                BotDialoguePriorityToString(entry.priority),
+                entry.preferredBotGuid,
+                entry.relatedPlayerGuid,
+                entry.queuedAgeMs,
+                entry.delayRemainingMs);
+        }
+
+        return true;
+    }
+
+    static bool HandleProactiveGroupCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.size() != 1)
+        {
+            Send(handler, "Usage: .botpersonality proactive group <playerOrBot>");
+            return false;
+        }
+
+        Player* member = FindOnlineAnyCharacter(handler, tokens[0]);
+        if (!member)
+            return true;
+
+        BotGroupDialogueStateView const state =
+            sBotProactiveDialogueMgr.GetGroupState(member);
+        Send(handler, "Group ID: {}", state.groupId);
+        Send(handler, "Last speaker: {}", state.lastSpeakerName.empty() ?
+            "none" : state.lastSpeakerName);
+        Send(handler, "Last event: {}",
+            BotProactiveDialogueEventToString(state.lastEvent));
+        Send(handler, "Last message age: {} seconds",
+            state.lastMessageAgeSeconds);
+        Send(handler, "Banter replies: {}", state.banterReplies);
+        Send(handler, "Queued events: {}", state.queuedEvents);
+        Send(handler, "Quiet period remaining: {} seconds",
+            state.quietRemainingSeconds);
+        return true;
+    }
+
+    static bool HandleProactiveClearQueueCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality proactive clearqueue");
+            return false;
+        }
+
+        sBotProactiveDialogueMgr.ClearQueue();
+        Send(handler, "Bot Personality proactive queue cleared.");
+        return true;
+    }
+
+    static bool HandleProactiveClearCooldownsCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality proactive clearcooldowns");
+            return false;
+        }
+
+        sBotProactiveDialogueMgr.ClearCooldowns();
+        Send(handler, "Bot Personality proactive cooldowns cleared.");
         return true;
     }
 };

@@ -2,7 +2,9 @@
 
 #include "BotDialogueMgr.h"
 #include "BotGameplayTracker.h"
+#include "BotMoodMgr.h"
 #include "BotRelationshipMgr.h"
+#include "BotProactiveDialogueMgr.h"
 #include "Log.h"
 #include "Player.h"
 #include "PlayerScript.h"
@@ -30,6 +32,8 @@ public:
         sBotDialogueMgr.LoadConfig(false);
         sBotRelationshipMgr.LoadConfig(false);
         sBotGameplayTracker.LoadConfig(false);
+        sBotMoodMgr.LoadConfig(false);
+        sBotProactiveDialogueMgr.LoadConfig(false);
     }
 
     void OnAfterConfigLoad(bool reload) override
@@ -38,6 +42,8 @@ public:
         sBotDialogueMgr.LoadConfig(reload);
         sBotRelationshipMgr.LoadConfig(reload);
         sBotGameplayTracker.LoadConfig(reload);
+        sBotMoodMgr.LoadConfig(reload);
+        sBotProactiveDialogueMgr.LoadConfig(reload);
     }
 
     void OnUpdate(uint32 diff) override
@@ -45,11 +51,15 @@ public:
         sBotDialogueMgr.Update(diff);
         sBotRelationshipMgr.Update(diff);
         sBotGameplayTracker.Update(diff);
+        sBotMoodMgr.Update(diff);
+        sBotProactiveDialogueMgr.Update(diff);
     }
 
     void OnShutdown() override
     {
         sBotRelationshipMgr.OnShutdown();
+        sBotMoodMgr.ClearCache();
+        sBotProactiveDialogueMgr.ClearAll();
     }
 };
 
@@ -61,7 +71,8 @@ public:
               "BotPersonalityPlayerScript",
               {
                   PLAYERHOOK_ON_LOGIN,
-                  PLAYERHOOK_ON_LOGOUT
+                  PLAYERHOOK_ON_LOGOUT,
+                  PLAYERHOOK_ON_MAP_CHANGED
               })
     {
     }
@@ -74,7 +85,15 @@ public:
     void OnPlayerLogout(Player* player) override
     {
         if (player)
+        {
             sBotRelationshipMgr.SaveRelationshipsForPlayer(player->GetGUID());
+            sBotProactiveDialogueMgr.OnPlayerLogout(player);
+        }
+    }
+
+    void OnPlayerMapChanged(Player* player) override
+    {
+        sBotProactiveDialogueMgr.OnPlayerMapChanged(player);
     }
 };
 
@@ -89,6 +108,7 @@ public:
     void OnPlayerbotUpdateSessions(Player* player) override
     {
         sBotPersonalityMgr.ProcessQueuedLoginGeneration(player);
+        sBotProactiveDialogueMgr.TrackBot(player);
     }
 
     void OnPlayerbotLogout(Player* player) override
@@ -98,6 +118,7 @@ public:
 
         sBotPersonalityMgr.RemoveQueuedLoginGeneration(player->GetGUID());
         sBotRelationshipMgr.SaveRelationshipsForPlayer(player->GetGUID());
+        sBotProactiveDialogueMgr.OnPlayerLogout(player);
     }
 };
 

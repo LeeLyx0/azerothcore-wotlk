@@ -1,6 +1,7 @@
 #include "BotGameplayTracker.h"
 
 #include "BotPersonalityMgr.h"
+#include "BotProactiveDialogueMgr.h"
 #include "BotRelationshipMgr.h"
 #include "Config.h"
 #include "Creature.h"
@@ -787,6 +788,15 @@ void BotGameplayTracker::ApplyGameplayEvent(
 
     if (applied)
         TouchTeamwork(bot, player, nowSeconds);
+
+    if (applyRelationship)
+    {
+        sBotProactiveDialogueMgr.RecordGameplayEvent(
+            bot,
+            player,
+            event,
+            context);
+    }
 
     if (_debugLogging)
     {

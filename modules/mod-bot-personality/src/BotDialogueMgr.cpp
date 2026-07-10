@@ -1,6 +1,7 @@
 #include "BotDialogueMgr.h"
 
 #include "IBotDialogueProvider.h"
+#include "BotMoodMgr.h"
 #include "BotPersonalityMgr.h"
 #include "BotRelationshipMgr.h"
 #include "BotTemplateDialogueProvider.h"
@@ -222,6 +223,33 @@ BotRelationshipEvent RelationshipEventForIntent(BotChatIntent intent)
     }
 
     return BotRelationshipEvent::Conversation;
+}
+
+std::optional<BotMoodEvent> MoodEventForIntent(BotChatIntent intent)
+{
+    switch (intent)
+    {
+        case BotChatIntent::Greeting:
+            return BotMoodEvent::PlayerGreeting;
+        case BotChatIntent::Thanks:
+            return BotMoodEvent::PlayerThanksBot;
+        case BotChatIntent::Praise:
+            return BotMoodEvent::PlayerPraisesBot;
+        case BotChatIntent::Apology:
+            return BotMoodEvent::PlayerApologises;
+        case BotChatIntent::Insult:
+            return BotMoodEvent::PlayerInsultsBot;
+        case BotChatIntent::Farewell:
+        case BotChatIntent::HelpRequest:
+        case BotChatIntent::IdentityQuestion:
+        case BotChatIntent::WellbeingQuestion:
+        case BotChatIntent::Agreement:
+        case BotChatIntent::Disagreement:
+        case BotChatIntent::Unknown:
+            return std::nullopt;
+    }
+
+    return std::nullopt;
 }
 }
 
@@ -469,6 +497,14 @@ bool BotDialogueMgr::HandleIncomingWhisper(
             RelationshipEventForIntent(context->intent));
         if (relationshipApplied)
             ApplyRelationshipContext(*context, bot, sender);
+
+        if (std::optional<BotMoodEvent> moodEvent =
+                MoodEventForIntent(context->intent))
+            sBotMoodMgr.ApplyMoodEvent(
+                bot,
+                *moodEvent,
+                sender->GetGUID().GetCounter(),
+                _config.duplicateWindowMs);
     }
 
     if (_config.debugLogging)

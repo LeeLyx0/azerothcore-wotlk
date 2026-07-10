@@ -1,5 +1,6 @@
 #include "BotGameplayTracker.h"
 
+#include "BotProactiveDialogueMgr.h"
 #include "Creature.h"
 #include "GlobalScript.h"
 #include "GroupScript.h"
@@ -105,6 +106,7 @@ public:
     void OnAddMember(Group* group, ObjectGuid guid) override
     {
         sBotGameplayTracker.RecordGroupMemberAdded(group, guid);
+        sBotProactiveDialogueMgr.OnGroupMemberAdded(group, guid);
     }
 
     void OnRemoveMember(
@@ -115,6 +117,7 @@ public:
         char const* /*reason*/) override
     {
         sBotGameplayTracker.RecordGroupMemberRemoved(group, guid, method);
+        sBotProactiveDialogueMgr.OnGroupMemberRemoved(group, guid);
     }
 };
 

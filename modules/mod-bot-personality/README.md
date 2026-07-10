@@ -8,10 +8,12 @@ record. Phase 2 adds a small template-based direct-whisper response system
 driven by the bot's existing traits and archetype. Phase 3 adds persistent,
 independent relationships between each Playerbot and each real player.
 Phase 4 lets meaningful shared gameplay update those same relationships.
+Phase 5 adds temporary in-memory mood and controlled proactive party/raid
+dialogue for verified gameplay events.
 
-The module still does not implement mood, combat reactions, party banter, LLM
-integration, HTTP calls, external APIs, background workers, proactive chat, or
-free-form language generation.
+The module still does not implement LLM integration, HTTP calls, external APIs,
+background workers, persistent natural-language memory, embeddings, autonomous
+commands, combat strategy changes, or free-form language generation.
 
 ## Installation
 
@@ -161,6 +163,49 @@ Phase 4 gameplay options:
 - `BotPersonality.Gameplay.*Affinity`, `*Trust`, `*Respect`, and
   `*Familiarity`: base gameplay event deltas.
 
+Phase 5 mood options:
+
+- `BotPersonality.Mood.Enable`: enables temporary mood.
+- `BotPersonality.Mood.DebugLogging`: mood diagnostics.
+- `BotPersonality.Mood.Minimum` and `.Maximum`: mood clamp range.
+- `BotPersonality.Mood.DecayIntervalSeconds`: decay cadence.
+- `BotPersonality.Mood.*Decay`: per-emotion movement toward baseline.
+- `BotPersonality.Mood.CacheExpiryMinutes`: idle in-memory expiry.
+- `BotPersonality.Mood.MaxCachedBots`: maximum cached bot moods.
+- `BotPersonality.Mood.DecayBatchSize`: decay work per world update pass.
+
+Phase 5 proactive chat options:
+
+- `BotPersonality.ProactiveChat.Enable`: enables proactive dialogue.
+- `BotPersonality.ProactiveChat.DebugLogging`: proactive diagnostics.
+- `BotPersonality.ProactiveChat.RequireRealPlayerPresent`: suppresses
+  bot-only groups.
+- `BotPersonality.ProactiveChat.EnablePartyChat`, `.EnableRaidChat`, and
+  `.EnableSay`: output channel toggles. `say` is disabled by default.
+- `BotPersonality.ProactiveChat.EnableBotBanter`, `.BotBanterChance`,
+  `.BotBanterDelayMinMs`, `.BotBanterDelayMaxMs`, and `.MaxBanterReplies`:
+  bounded bot-to-bot replies. `MaxBanterReplies` is clamped to `0-1`.
+- `BotPersonality.ProactiveChat.DelayMinMs` and `.DelayMaxMs`: primary message
+  delay.
+- `BotPersonality.ProactiveChat.GroupCooldownMs`, `.BotCooldownMs`, and
+  `.EventTypeCooldownMs`: spam controls.
+- `BotPersonality.ProactiveChat.MaxMessagesPerGroupPerMinute` and
+  `.MaxMessagesPerBotPerMinute`: rolling rate limits.
+- `BotPersonality.ProactiveChat.MaxQueuedEventsGlobal`,
+  `.MaxQueuedEventsPerGroup`, and `.EventExpirySeconds`: bounded event queues.
+- `BotPersonality.ProactiveChat.PostWipeQuietSeconds`,
+  `.PostCompletionQuietSeconds`, and `.PostBossQuietSeconds`: quiet periods
+  after noisy topics.
+- `BotPersonality.ProactiveChat.*Chance`: base chance per event family.
+- `BotPersonality.ProactiveChat.LowHealthPercent`,
+  `.CriticalHealthPercent`, `.LowManaPercent`, and matching cooldowns:
+  threshold-crossing detection for tracked bots.
+- `BotPersonality.ProactiveChat.EnableInactivityDialogue`,
+  `.InactivityMinutes`, and `.InactivityCooldownMinutes`: idle comments for
+  tracked, grouped, non-moving bots.
+- `BotPersonality.ProactiveChat.ForceDialogueForDebug`: debug-only 100%
+  proactive chance.
+
 ## Commands
 
 All commands require GM access unless noted.
@@ -191,6 +236,20 @@ All commands require GM access unless noted.
 .botpersonality gameplay recent <botName> <playerName>
 .botpersonality gameplay trackers
 .botpersonality gameplay cleartrackers
+.botpersonality mood show <botName>
+.botpersonality mood set <botName> <field> <value>
+.botpersonality mood adjust <botName> <field> <amount>
+.botpersonality mood reset <botName>
+.botpersonality mood apply <botName> <event>
+.botpersonality mood list
+.botpersonality mood clearcache
+.botpersonality proactive status
+.botpersonality proactive simulate <botName> <event> [playerName]
+.botpersonality proactive queue
+.botpersonality proactive group <playerOrBot>
+.botpersonality proactive clearqueue
+.botpersonality proactive clearcooldowns
+.botpersonality proactive force <botName> <event> [playerName]
 ```
 
 `clearcache` requires administrator access. Commands support online bots. Real
@@ -218,6 +277,20 @@ path used by live events; it modifies the relationship only with the explicit
 events for one pair. `gameplay trackers` reports tracker sizes only.
 `gameplay cleartrackers` clears transient gameplay state without deleting
 persistent relationships, chat cooldowns, or chat anti-farming state.
+
+`mood show` displays current transient mood, dominant mood, intensity, and the
+personality-derived baseline. `mood set`, `mood adjust`, `mood reset`, and
+`mood apply` update the in-memory mood cache only; they never write SQL.
+The `confidence` mood field is temporary mood confidence, not the persistent
+personality trait. `mood list` is capped to a small debug list.
+
+`proactive simulate` previews the normal proactive template path without
+sending chat. `proactive force` sends one actual test line through the same
+context/template/output path while bypassing chance and cooldowns. It still
+validates the bot, group, safe channel, and optional real-player target.
+`proactive clearqueue` clears pending proactive events only.
+`proactive clearcooldowns` clears proactive cooldowns, rate windows, recent
+topics, and recent proactive responses only.
 
 ## Traits
 
@@ -431,6 +504,96 @@ basic meaning.
 Gameplay caps are separate from chat caps. They limit positive gain, negative
 loss, and familiarity gain per bot/player pair per hour, while the final
 relationship values still share the same configured min/max bounds.
+
+## Phase 5 Mood
+
+Mood is temporary, in-memory state keyed by stable bot GUID. It contains:
+
+- happiness;
+- frustration;
+- mood confidence;
+- fear;
+- excitement;
+- boredom.
+
+Mood values default to `0-100` and are clamped by configuration. Mood is not
+stored in the database and is reset by worldserver restart. A brief logout can
+retain mood while the in-memory cache entry remains alive; cache expiry removes
+idle entries.
+
+The baseline is derived from stable personality, not only archetype. Friendly
+bots baseline slightly happier, confident bots baseline slightly more
+confident, nervous or low-bravery bots baseline more fearful, impatient bots
+baseline more frustrated, and talkative bots baseline slightly more excited and
+bored. Baselines intentionally stay subtle, generally within `0-25`.
+
+Verified chat and gameplay events apply centralized base mood deltas. Examples:
+boss kills raise happiness, mood confidence, and excitement; wipes raise
+frustration and fear; resurrection lowers fear and frustration; inactivity
+raises boredom. Personality then scales those deltas in a bounded way:
+patience softens frustration, bravery reduces fear, competitiveness amplifies
+success and failure, nervous bots react more to danger, helpful bots enjoy
+recovery and teamwork more, and stoic bots keep normal internal mood while
+speaking less often.
+
+World updates decay mood toward baseline in bounded batches. Decay moves each
+emotion toward its baseline rather than always toward zero. Dominant mood is
+computed only when an emotion is meaningfully above baseline; otherwise the bot
+is calm.
+
+## Phase 5 Proactive Dialogue
+
+Proactive dialogue is driven by the existing verified gameplay tracker and by
+group/map lifecycle hooks. It does not redetect kills, heals, deaths, wipes, or
+completion events. A live semantic event updates relationship through Phase 4,
+updates mood once per bot/event/source, and queues at most one eligible
+proactive topic per group/topic.
+
+Implemented proactive event families:
+
+- group joined and dungeon entered;
+- shared elite and boss kills;
+- bot healed and bot resurrected;
+- player death, repeated player death, bot death, and group wipe;
+- dungeon completion and raid encounter completion;
+- player left during combat as abandonment;
+- low health, critical health, and low mana threshold crossings;
+- long inactivity for tracked, grouped, non-moving bots;
+- sustained teamwork;
+- one bounded bot-to-bot banter reply.
+
+Omitted or conservative events:
+
+- strict "bot saved" and dangerous-pull attribution are only available through
+  explicit simulation or future verified hooks; the module does not infer them
+  from ordinary healing or threat.
+- bot-healed-player and bot-resurrected-player gameplay events update
+  relationships but do not currently make the bot claim credit proactively.
+- proactive relationship-improved/worsened events are command/simulation
+  events only; normal proactive speech does not alter relationships.
+
+Priorities are Low, Normal, High, and Critical. Wipes, completions,
+resurrection, and abandonment are critical. Boss kills, saved-style events,
+repeated player deaths, and critical health are high. Elite kills, ordinary
+healing, bot death, teamwork, and group join are normal. Low health, low mana,
+inactivity, and banter are low.
+
+The coordinator chooses one speaker per event. It scores eligible bots by
+preferred speaker, talkativeness, mood intensity, relationship affinity,
+archetype, and recent speaker history, then applies group cooldowns, per-bot
+cooldowns, event-type cooldowns, per-minute limits, quiet periods, and stale
+event expiry. Group-level topics such as boss kills and wipes are suppressed so
+one event cannot make every bot speak.
+
+Output uses normal party chat or raid chat when the bot is grouped and at least
+one real player is present. `say` is available only when enabled. The module
+never uses yell, guild, raid warning, battleground, or global channels. Delayed
+messages revalidate the bot, group, map/instance, and real-player presence
+before sending. Bot-only groups remain silent by default.
+
+Bot-to-bot banter is short, optional, and bounded. A primary proactive line can
+queue at most one reply, the reply cannot trigger another reply, and real
+player presence is still required.
 
 ## Manual Gameplay Test
 

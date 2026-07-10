@@ -361,3 +361,121 @@ BotPersonality.Chat.ReplyDelay.MaxMs = 10000
 # Message contents are redacted from logs.
 # Default: 0
 BotPersonality.Chat.DebugLogging = 0
+
+##################################################
+# BOT PERSONALITY MOOD CONFIGURATION             #
+##################################################
+
+# Enable temporary in-memory bot mood.
+# Default: 1
+BotPersonality.Mood.Enable = 1
+
+# Enable diagnostics for mood cache, deltas, clamping, and decay.
+# Default: 0
+BotPersonality.Mood.DebugLogging = 0
+
+# Mood value range. Mood is transient and is not persisted to the database.
+BotPersonality.Mood.Minimum = 0
+BotPersonality.Mood.Maximum = 100
+
+# Mood decay moves values toward personality-derived baselines.
+BotPersonality.Mood.DecayIntervalSeconds = 30
+BotPersonality.Mood.HappinessDecay = 1
+BotPersonality.Mood.FrustrationDecay = 2
+BotPersonality.Mood.ConfidenceDecay = 1
+BotPersonality.Mood.FearDecay = 2
+BotPersonality.Mood.ExcitementDecay = 2
+BotPersonality.Mood.BoredomDecay = 1
+
+# In-memory mood cache expiry, size, and per-update decay batch.
+BotPersonality.Mood.CacheExpiryMinutes = 60
+BotPersonality.Mood.MaxCachedBots = 5000
+BotPersonality.Mood.DecayBatchSize = 200
+
+##################################################
+# BOT PERSONALITY PROACTIVE CHAT CONFIGURATION   #
+##################################################
+
+# Enable event-driven contextual party/raid dialogue.
+# Default: 1
+BotPersonality.ProactiveChat.Enable = 1
+
+# Enable diagnostics for queueing, suppression, speaker selection, and sends.
+# Default: 0
+BotPersonality.ProactiveChat.DebugLogging = 0
+
+# Require at least one online real player before proactive dialogue is sent.
+BotPersonality.ProactiveChat.RequireRealPlayerPresent = 1
+
+# Proactive output channels. Raid chat is normal raid chat, not raid warning.
+BotPersonality.ProactiveChat.EnablePartyChat = 1
+BotPersonality.ProactiveChat.EnableRaidChat = 1
+BotPersonality.ProactiveChat.EnableSay = 0
+
+# Short, bounded bot-to-bot banter after a primary contextual line.
+BotPersonality.ProactiveChat.EnableBotBanter = 1
+BotPersonality.ProactiveChat.BotBanterChance = 15
+BotPersonality.ProactiveChat.BotBanterDelayMinMs = 1500
+BotPersonality.ProactiveChat.BotBanterDelayMaxMs = 4000
+BotPersonality.ProactiveChat.MaxBanterReplies = 1
+
+# Primary proactive message delay.
+BotPersonality.ProactiveChat.DelayMinMs = 500
+BotPersonality.ProactiveChat.DelayMaxMs = 2500
+
+# Group, bot, and topic cooldowns.
+BotPersonality.ProactiveChat.GroupCooldownMs = 12000
+BotPersonality.ProactiveChat.BotCooldownMs = 30000
+BotPersonality.ProactiveChat.EventTypeCooldownMs = 60000
+
+# Rolling one-minute message limits.
+BotPersonality.ProactiveChat.MaxMessagesPerGroupPerMinute = 4
+BotPersonality.ProactiveChat.MaxMessagesPerBotPerMinute = 2
+
+# Bounded event queues.
+BotPersonality.ProactiveChat.MaxQueuedEventsGlobal = 1000
+BotPersonality.ProactiveChat.MaxQueuedEventsPerGroup = 10
+BotPersonality.ProactiveChat.EventExpirySeconds = 20
+
+# Quiet periods after noisy high-priority topics.
+BotPersonality.ProactiveChat.PostWipeQuietSeconds = 20
+BotPersonality.ProactiveChat.PostCompletionQuietSeconds = 10
+BotPersonality.ProactiveChat.PostBossQuietSeconds = 8
+
+# Base dialogue chances by event family.
+BotPersonality.ProactiveChat.GroupJoinChance = 35
+BotPersonality.ProactiveChat.DungeonEnterChance = 40
+BotPersonality.ProactiveChat.EliteKillChance = 15
+BotPersonality.ProactiveChat.BossKillChance = 75
+BotPersonality.ProactiveChat.BotHealedChance = 15
+BotPersonality.ProactiveChat.BotSavedChance = 65
+BotPersonality.ProactiveChat.BotResurrectedChance = 80
+BotPersonality.ProactiveChat.PlayerDeathChance = 10
+BotPersonality.ProactiveChat.RepeatedPlayerDeathChance = 45
+BotPersonality.ProactiveChat.BotDeathChance = 20
+BotPersonality.ProactiveChat.WipeChance = 70
+BotPersonality.ProactiveChat.DungeonCompleteChance = 90
+BotPersonality.ProactiveChat.RaidEncounterCompleteChance = 80
+BotPersonality.ProactiveChat.DangerousPullChance = 30
+BotPersonality.ProactiveChat.AbandonmentChance = 75
+BotPersonality.ProactiveChat.LowHealthChance = 5
+BotPersonality.ProactiveChat.CriticalHealthChance = 25
+BotPersonality.ProactiveChat.LowManaChance = 8
+BotPersonality.ProactiveChat.InactivityChance = 15
+BotPersonality.ProactiveChat.TeamworkChance = 20
+
+# Low-health and low-mana threshold crossing detection for tracked bots.
+BotPersonality.ProactiveChat.LowHealthPercent = 30
+BotPersonality.ProactiveChat.CriticalHealthPercent = 15
+BotPersonality.ProactiveChat.LowManaPercent = 20
+BotPersonality.ProactiveChat.LowHealthCooldownSeconds = 120
+BotPersonality.ProactiveChat.CriticalHealthCooldownSeconds = 60
+BotPersonality.ProactiveChat.LowManaCooldownSeconds = 120
+
+# Inactivity dialogue only checks bots already tracked by recent group events.
+BotPersonality.ProactiveChat.EnableInactivityDialogue = 1
+BotPersonality.ProactiveChat.InactivityMinutes = 5
+BotPersonality.ProactiveChat.InactivityCooldownMinutes = 15
+
+# Force proactive chance to 100% for debugging.
+BotPersonality.ProactiveChat.ForceDialogueForDebug = 0
