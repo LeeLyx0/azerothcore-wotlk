@@ -4,16 +4,18 @@ Persistent Playerbot personality, relationship memory, and template dialogue
 for AzerothCore.
 
 Phase 1 gives each online Playerbot a deterministic, persisted personality
-record. Phase 2 adds a small template-based direct-whisper response system
+record. Phase 2 adds a small template-based reactive chat response system
 driven by the bot's existing traits and archetype. Phase 3 adds persistent,
 independent relationships between each Playerbot and each real player.
 Phase 4 lets meaningful shared gameplay update those same relationships.
 Phase 5 adds temporary in-memory mood and controlled proactive party/raid
 dialogue for verified gameplay events.
+Phase 6 optionally routes eligible dialogue through an OpenAI-compatible LLM
+endpoint for wording only.
 
-The module still does not implement LLM integration, HTTP calls, external APIs,
-background workers, persistent natural-language memory, embeddings, autonomous
-commands, combat strategy changes, or free-form language generation.
+The module still does not implement persistent natural-language memory,
+embeddings, autonomous commands, combat strategy changes, LLM tool calling,
+function calling, streaming responses, or LLM-controlled gameplay.
 
 ## Installation
 
@@ -95,6 +97,8 @@ Phase 2 chat options:
 
 - `BotPersonality.Chat.Enable`: enables template-based chat.
 - `BotPersonality.Chat.RespondToWhispers`: enables direct whisper replies.
+- `BotPersonality.Chat.RespondToGroupChat`: enables one eligible bot to answer
+  real player party/raid chat.
 - `BotPersonality.Chat.RespondToUnknown`: enables low-probability unknown
   intent replies.
 - `BotPersonality.Chat.ForceResponseForDebug`: makes eligible messages answer
@@ -104,7 +108,7 @@ Phase 2 chat options:
 - `BotPersonality.Chat.DuplicateWindowMs`: duplicate-message suppression
   window.
 - `BotPersonality.Chat.MaxResponsesPerMinute`: rolling per-bot rate limit.
-- `BotPersonality.Chat.MaxInputLength`: maximum processed whisper length.
+- `BotPersonality.Chat.MaxInputLength`: maximum processed chat length.
 - `BotPersonality.Chat.MaxOutputLength`: maximum generated reply length.
 - `BotPersonality.Chat.MinimumGreetingChance`: minimum greeting chance.
 - `BotPersonality.Chat.MinimumHelpChance`: minimum help-request chance.
@@ -206,6 +210,40 @@ Phase 5 proactive chat options:
 - `BotPersonality.ProactiveChat.ForceDialogueForDebug`: debug-only 100%
   proactive chance.
 
+Phase 6 LLM options:
+
+- `BotPersonality.LLM.Enable`: enables optional LLM wording generation. It is
+  disabled by default.
+- `BotPersonality.LLM.Mode`: `Template`, `Llm`, or `Hybrid`.
+- `BotPersonality.LLM.Endpoint`: OpenAI-compatible Chat Completions endpoint.
+  The built-in client supports plain HTTP endpoints and is intended for local
+  model servers or trusted sidecars.
+- `BotPersonality.LLM.AllowRemoteEndpoint` and `.AllowHttpWithoutTls`: endpoint
+  safety gates.
+- `BotPersonality.LLM.Model`: configured model name.
+- `BotPersonality.LLM.ApiKeyEnvironmentVariable`: environment variable used for
+  the optional bearer token. The key is never printed by commands.
+- `BotPersonality.LLM.EnableForWhispers`, `.EnableForGroupChat`, and
+  `.EnableForProactiveChat`: route control for reactive whispers, reactive
+  party/raid chat, and proactive event chatter.
+- `BotPersonality.LLM.Workers`, `.MaxInFlightRequests`, and `Queue.*`: bounded
+  async worker and queue limits.
+- `BotPersonality.LLM.RateLimit.*`: global, per-player, per-bot, and
+  per-conversation request limits.
+- `BotPersonality.LLM.History.*`: bounded in-memory recent conversation
+  history.
+- `BotPersonality.LLM.MaxPromptCharacters`, `.MaxOutputCharacters`,
+  `.MaxOutputWords`, `.AllowMultiline`, and `.TruncateLongOutput`: prompt and
+  response limits.
+- `BotPersonality.LLM.Temperature`, `.TopP`, `.MaxTokens`,
+  `.FrequencyPenalty`, and `.PresencePenalty`: model request settings.
+- `BotPersonality.LLM.FallbackToTemplates`: sends the existing template wording
+  if the LLM fails before the response becomes stale.
+- `BotPersonality.LLM.CircuitBreaker.*`: stops repeatedly calling an unhealthy
+  endpoint.
+- `BotPersonality.LLM.Route.*`: hybrid routing for chat intents and proactive
+  event types.
+
 ## Commands
 
 All commands require GM access unless noted.
@@ -250,6 +288,16 @@ All commands require GM access unless noted.
 .botpersonality proactive clearqueue
 .botpersonality proactive clearcooldowns
 .botpersonality proactive force <botName> <event> [playerName]
+.botpersonality llm status
+.botpersonality llm health
+.botpersonality llm metrics
+.botpersonality llm queue
+.botpersonality llm test <botName> <playerName> <message>
+.botpersonality llm prompt <botName> <playerName> <message>
+.botpersonality llm clearhistory [botName] [playerName]
+.botpersonality llm clearqueue
+.botpersonality llm resetmetrics
+.botpersonality llm resetcircuit
 ```
 
 `clearcache` requires administrator access. Commands support online bots. Real
@@ -317,18 +365,24 @@ result, and saves it to the characters database when configured.
 Deleting a generated row and regenerating it with the same code and config
 produces the same personality for the same bot.
 
-## Phase 2 Whisper Chat
+## Phase 2 Reactive Chat
 
-Phase 2 only responds to non-addon direct whispers from real players to
-Playerbots:
+Phase 2 responds to non-addon direct whispers from real players to Playerbots:
 
 ```text
 /whisper BotName hello
 ```
 
-The bot may answer with a normal player whisper. Bots do not proactively speak
-in party chat, raid chat, say, yell, guild chat, battleground chat, or world
-channels.
+It can also let one eligible Playerbot answer real player party or raid chat:
+
+```text
+/p hello
+/raid ready?
+```
+
+Whispers answer by whisper. Party and raid prompts answer back in the same
+group channel. Reactive chat does not answer say, yell, guild chat,
+battleground chat, or world channels.
 
 Supported intents:
 
@@ -616,50 +670,113 @@ Use one online real player and one online Playerbot:
 
 ## Dialogue Integration
 
-The whisper pipeline is:
+The reactive dialogue pipeline is:
 
 ```text
-validate real-player sender and Playerbot recipient
+validate real-player sender and eligible Playerbot recipient
 reject addon, empty, invalid, or Playerbots command messages
 parse intent and suppress exact duplicate farming
 apply one relationship event for accepted conversational input
 copy relationship data into the dialogue context
 choose tone from personality, intent, and relationship
 select relationship-aware templates with normal template fallback
-apply existing response chance, cooldowns, and delayed whisper sending
+optionally queue an LLM request that may replace wording only
+apply existing response chance, cooldowns, and delayed sending
 ```
 
 Relationship templates use broad negative, neutral, positive, and loyal bands
 instead of every possible intent/tone/level combination. If no relationship
 template matches, Phase 2 personality-only templates remain the fallback.
 
-## Manual Relationship Test
+## Phase 6 LLM Dialogue
 
-Use one bot and two online real players:
+Phase 6 adds an optional OpenAI-compatible Chat Completions client. The LLM is
+used only after existing server logic has decided that a bot may speak. It does
+not detect intent, choose speakers, update relationships, alter mood, inspect
+the database, execute commands, or control Playerbots.
+
+The request flow is:
 
 ```text
-1. .botpersonality relationship set BotName PlayerA affinity 400
-2. .botpersonality relationship set BotName PlayerB affinity -400
-3. Whisper "hello" from PlayerA to BotName.
-4. Whisper "hello" from PlayerB to BotName.
-5. Compare warm/positive wording against guarded/negative wording.
-6. Restart worldserver.
-7. Repeat both whispers.
-8. Confirm .botpersonality relationship show preserved both rows.
+existing chat or proactive system accepts an event
+build copied immutable context
+queue a bounded worker request
+send HTTP from a worker thread
+return result to the world update hook
+revalidate bot, player, group, channel, and request age
+validate and sanitize generated text
+send LLM wording or template fallback
+```
+
+Workers receive copied strings, GUID counters, personality, relationship, mood,
+and recent verified gameplay summaries. They never access live game objects.
+All chat sending happens later on the world thread after object revalidation.
+
+The prompt uses one server-authored system message, bounded recent conversation
+turns, and one user message. Player text is treated as untrusted and is never
+inserted into the system instructions. Numeric personality, relationship, and
+mood values are converted into qualitative descriptions before being sent.
+
+Conversation history is memory-only, per bot/player pair, bounded by turn count
+and character count, and expires after inactivity. Playerbots commands and
+addon messages are rejected before LLM routing and are not stored.
+
+The response validator trims speaker labels and quotes, rejects multiline text
+when disabled, rejects command-looking output, rejects AI/self-disclosure or
+prompt-reveal wording, enforces word/character limits, and preserves valid
+UTF-8. Failed, late, or invalid requests fall back to the template response
+when `BotPersonality.LLM.FallbackToTemplates` is enabled.
+
+The built-in HTTP client currently supports plain HTTP endpoints. The default
+configuration points at loopback for local services such as Ollama-compatible
+or LM Studio-compatible Chat Completions endpoints. Remote endpoints require
+`AllowRemoteEndpoint = 1`; administrators are responsible for provider terms,
+privacy obligations, and API-key handling.
+
+Prompt injection cannot be perfectly prevented. The safety boundary is
+architectural: the model receives no command execution capability, generated
+text is untrusted, output is validated, and the model cannot access game APIs
+or mutate relationship, mood, gameplay, movement, combat, trade, or group state.
+
+## Mock LLM Service
+
+For local testing:
+
+```text
+python modules/mod-bot-personality/tools/mock_openai_compatible.py
+```
+
+Then enable:
+
+```ini
+BotPersonality.LLM.Enable = 1
+BotPersonality.LLM.Endpoint = http://127.0.0.1:11434/v1/chat/completions
+```
+
+Useful checks:
+
+```text
+1. .botpersonality llm status
+2. .botpersonality llm prompt BotName PlayerName hello
+3. .botpersonality llm test BotName PlayerName hello
+4. Whisper the bot and speak in party chat; confirm Playerbots commands still
+   bypass LLM routing.
+5. Run the mock with --mode ai and confirm validation rejects the output.
+6. Run the mock with --delay 10 and confirm timeout fallback/stale handling.
 ```
 
 ## Command Compatibility
 
 Existing Playerbots commands remain owned by `mod-playerbots`. The chat hook
-never blocks the whisper and never executes bot commands. Before generating a
-personality response it probes the recipient bot's Playerbots trigger registry
+never blocks player chat and never executes bot commands. Before generating a
+personality response it probes the target bot's Playerbots trigger registry
 with the same exact-then-leading-phrase shape used by
 `ExternalEventHelper::ParseChatCommand`, while also respecting the configured
 Playerbots command prefix, command separator, chat target prefixes, `reset`,
 `logout`, `debug`, `do`, and item-link auto-trade detection.
 
-If Playerbots recognizes a whisper as a command, personality chat remains
-silent and allows Playerbots to handle it normally.
+If Playerbots recognizes a whisper or group message as a command, personality
+chat remains silent and allows Playerbots to handle it normally.
 
 ## Cooldowns And Spam Control
 
@@ -683,9 +800,10 @@ and response text only; they do not hold raw `Player*` pointers.
 
 ## Limitations
 
-The module is still intentionally template-only for language. It does not call
-external services, run background threads, execute SQL from chat, issue
-Playerbots commands, change AI state, store chat history, model mood, perform
-proactive banter, track loot disputes, track leadership, or generate free-form
-text. Help-request replies are conversational only; actual bot control still
-requires normal Playerbots commands.
+LLM support is optional and disabled by default. The built-in HTTP client is
+plain-HTTP only; use it with local endpoints or a trusted sidecar. The module
+does not persist natural-language memories, summarize conversations, build
+embeddings, perform semantic search, stream output, call tools/functions,
+execute SQL from chat, issue Playerbots commands, change AI state, track loot
+disputes, or track leadership. Help-request replies are conversational only;
+actual bot control still requires normal Playerbots commands.

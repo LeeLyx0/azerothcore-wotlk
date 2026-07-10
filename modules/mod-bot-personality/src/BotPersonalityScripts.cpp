@@ -2,6 +2,7 @@
 
 #include "BotDialogueMgr.h"
 #include "BotGameplayTracker.h"
+#include "BotLlmMgr.h"
 #include "BotMoodMgr.h"
 #include "BotRelationshipMgr.h"
 #include "BotProactiveDialogueMgr.h"
@@ -34,6 +35,7 @@ public:
         sBotGameplayTracker.LoadConfig(false);
         sBotMoodMgr.LoadConfig(false);
         sBotProactiveDialogueMgr.LoadConfig(false);
+        sBotLlmMgr.LoadConfig(false);
     }
 
     void OnAfterConfigLoad(bool reload) override
@@ -44,6 +46,7 @@ public:
         sBotGameplayTracker.LoadConfig(reload);
         sBotMoodMgr.LoadConfig(reload);
         sBotProactiveDialogueMgr.LoadConfig(reload);
+        sBotLlmMgr.LoadConfig(reload);
     }
 
     void OnUpdate(uint32 diff) override
@@ -53,11 +56,13 @@ public:
         sBotGameplayTracker.Update(diff);
         sBotMoodMgr.Update(diff);
         sBotProactiveDialogueMgr.Update(diff);
+        sBotLlmMgr.Update(diff);
     }
 
     void OnShutdown() override
     {
         sBotRelationshipMgr.OnShutdown();
+        sBotLlmMgr.Shutdown();
         sBotMoodMgr.ClearCache();
         sBotProactiveDialogueMgr.ClearAll();
     }

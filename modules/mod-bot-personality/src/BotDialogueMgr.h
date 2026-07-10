@@ -14,6 +14,7 @@
 #include <unordered_map>
 
 class IBotDialogueProvider;
+class Group;
 class Player;
 
 struct BotDialogueCooldownStats
@@ -53,6 +54,12 @@ public:
         Player* bot,
         uint32 language,
         std::string const& message);
+    bool HandleIncomingGroupChat(
+        Player* sender,
+        Group* group,
+        uint32 type,
+        uint32 language,
+        std::string const& message);
 
     BotChatIntent ParseIntent(std::string const& message) const;
     std::string NormalizeMessage(std::string const& message) const;
@@ -74,6 +81,7 @@ private:
     {
         bool enable = true;
         bool respondToWhispers = true;
+        bool respondToGroupChat = true;
         bool respondToUnknown = true;
         bool forceResponseForDebug = false;
 
@@ -113,6 +121,7 @@ private:
     {
         ObjectGuid botGuid;
         ObjectGuid playerGuid;
+        uint32 groupId = 0;
         BotDialogueContext context;
         std::string response;
         uint32 queuedAtMs = 0;
@@ -129,15 +138,32 @@ private:
         Player* sender,
         Player* bot,
         std::string const& message,
-        std::optional<BotChatIntent> forcedIntent);
+        std::optional<BotChatIntent> forcedIntent,
+        bool isWhisper,
+        bool isPartyChat,
+        bool isRaidChat);
     void ApplyRelationshipContext(
         BotDialogueContext& context,
         Player* bot,
         Player* sender) const;
 
+    bool HandleIncomingDialogue(
+        Player* sender,
+        Player* bot,
+        uint32 language,
+        std::string const& message,
+        bool isWhisper,
+        bool isPartyChat,
+        bool isRaidChat);
     bool IsEligibleWhisper(
         Player* sender,
         Player* bot,
+        uint32 language,
+        std::string const& message) const;
+    bool IsEligibleGroupChat(
+        Player* sender,
+        Group* group,
+        uint32 type,
         uint32 language,
         std::string const& message) const;
     bool IsAddonControlMessage(std::string const& message) const;
@@ -175,9 +201,20 @@ private:
         BotDialogueContext const& context,
         std::string response,
         uint32 nowMs);
+    void QueueGroupReply(
+        Player* bot,
+        Player* receiver,
+        BotDialogueContext const& context,
+        std::string response,
+        uint32 nowMs);
     void ProcessPendingReplies(uint32 nowMs);
     void DeliverPendingReply(PendingReply& reply);
     bool SendWhisper(Player* bot, Player* receiver, std::string& response);
+    bool SendGroupChat(
+        Player* bot,
+        Player* receiver,
+        BotDialogueContext const& context,
+        std::string& response);
 
     void Cleanup(uint32 nowMs);
 

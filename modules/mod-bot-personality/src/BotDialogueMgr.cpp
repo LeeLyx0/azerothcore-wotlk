@@ -1,12 +1,15 @@
 #include "BotDialogueMgr.h"
 
 #include "IBotDialogueProvider.h"
+#include "BotLlmMgr.h"
 #include "BotMoodMgr.h"
 #include "BotPersonalityMgr.h"
 #include "BotRelationshipMgr.h"
 #include "BotTemplateDialogueProvider.h"
+#include "Chat.h"
 #include "Config.h"
 #include "Group.h"
+#include "GroupReference.h"
 #include "Log.h"
 #include "Map.h"
 #include "ObjectAccessor.h"
@@ -15,6 +18,7 @@
 #include "SharedDefines.h"
 #include "Timer.h"
 #include "Util.h"
+#include "WorldPacket.h"
 #include "WorldSession.h"
 
 #ifdef MOD_PLAYERBOTS
@@ -268,6 +272,9 @@ void BotDialogueMgr::LoadConfig(bool reload)
     _config.respondToWhispers = sConfigMgr->GetOption<bool>(
         "BotPersonality.Chat.RespondToWhispers",
         true);
+    _config.respondToGroupChat = sConfigMgr->GetOption<bool>(
+        "BotPersonality.Chat.RespondToGroupChat",
+        true);
     _config.respondToUnknown = sConfigMgr->GetOption<bool>(
         "BotPersonality.Chat.RespondToUnknown",
         true);
@@ -428,7 +435,105 @@ bool BotDialogueMgr::HandleIncomingWhisper(
             message.size());
     }
 
-    if (!IsEligibleWhisper(sender, bot, language, message))
+    return HandleIncomingDialogue(
+        sender,
+        bot,
+        language,
+        message,
+        true,
+        false,
+        false);
+}
+
+bool BotDialogueMgr::HandleIncomingGroupChat(
+    Player* sender,
+    Group* group,
+    uint32 type,
+    uint32 language,
+    std::string const& message)
+{
+    if (!IsEligibleGroupChat(sender, group, type, language, message))
+        return false;
+
+    bool const isPartyChat =
+        type == CHAT_MSG_PARTY ||
+        type == CHAT_MSG_PARTY_LEADER;
+    bool const isRaidChat =
+        type == CHAT_MSG_RAID ||
+        type == CHAT_MSG_RAID_LEADER;
+
+    std::vector<Player*> candidates;
+    uint8 const senderSubgroup = group->GetMemberGroup(sender->GetGUID());
+    for (GroupReference* itr = group->GetFirstMember();
+        itr != nullptr;
+        itr = itr->next())
+    {
+        Player* member = itr->GetSource();
+        if (!IsValidOnlinePlayer(member) ||
+            member->GetGUID() == sender->GetGUID() ||
+            !sBotPersonalityMgr.IsPlayerbot(member))
+            continue;
+
+        if (isPartyChat &&
+            group->isRaidGroup() &&
+            group->GetMemberGroup(member->GetGUID()) != senderSubgroup)
+            continue;
+
+        if (IsPlayerbotsCommand(member, message))
+        {
+            if (_config.debugLogging)
+            {
+                LOG_DEBUG(
+                    "module.botpersonality.chat",
+                    "Group chat recognized as Playerbots command");
+            }
+
+            return false;
+        }
+
+        candidates.push_back(member);
+    }
+
+    if (candidates.empty())
+        return false;
+
+    if (candidates.size() > 1)
+    {
+        std::size_t const offset = urand(
+            0,
+            static_cast<uint32>(candidates.size() - 1));
+        std::rotate(
+            candidates.begin(),
+            candidates.begin() + offset,
+            candidates.end());
+    }
+
+    for (Player* bot : candidates)
+    {
+        if (HandleIncomingDialogue(
+                sender,
+                bot,
+                language,
+                message,
+                false,
+                isPartyChat,
+                isRaidChat))
+            return true;
+    }
+
+    return false;
+}
+
+bool BotDialogueMgr::HandleIncomingDialogue(
+    Player* sender,
+    Player* bot,
+    uint32 language,
+    std::string const& message,
+    bool isWhisper,
+    bool isPartyChat,
+    bool isRaidChat)
+{
+    if (isWhisper && !IsEligibleWhisper(sender, bot, language, message))
         return false;
 
     if (IsPlayerbotsCommand(bot, message))
@@ -470,7 +575,14 @@ bool BotDialogueMgr::HandleIncomingWhisper(
     }
 
     std::optional<BotDialogueContext> context =
-        BuildContext(sender, bot, message, std::nullopt);
+        BuildContext(
+            sender,
+            bot,
+            message,
+            std::nullopt,
+            isWhisper,
+            isPartyChat,
+            isRaidChat);
     if (!context)
         return false;
 
@@ -564,14 +676,24 @@ bool BotDialogueMgr::HandleIncomingWhisper(
     if (responseText.empty())
         return false;
 
-    QueueWhisper(bot, sender, *context, responseText, nowMs);
+    if (sBotLlmMgr.TryQueueDialogue(bot, sender, *context, responseText))
+    {
+        RecordSuccessfulResponse(*context, "", nowMs);
+        return true;
+    }
+
+    if (context->isWhisper)
+        QueueWhisper(bot, sender, *context, responseText, nowMs);
+    else
+        QueueGroupReply(bot, sender, *context, responseText, nowMs);
     RecordSuccessfulResponse(*context, responseText, nowMs);
 
     if (_config.debugLogging)
     {
         LOG_DEBUG(
             "module.botpersonality.chat",
-            "Whisper response queued for bot {} to player {}",
+            "{} response queued for bot {} to player {}",
+            context->isWhisper ? "Whisper" : "Group chat",
             botGuid,
             playerGuid);
     }
@@ -599,7 +721,14 @@ BotDialogueDebugResult BotDialogueMgr::GenerateDebugResponse(
     BotDialogueDebugResult result;
 
     std::optional<BotDialogueContext> context =
-        BuildContext(player, bot, "", intent);
+        BuildContext(
+            player,
+            bot,
+            "",
+            intent,
+            true,
+            false,
+            false);
     if (!context)
     {
         result.error = "Unable to build dialogue context.";
@@ -673,7 +802,10 @@ std::optional<BotDialogueContext> BotDialogueMgr::BuildContext(
     Player* sender,
     Player* bot,
     std::string const& message,
-    std::optional<BotChatIntent> forcedIntent)
+    std::optional<BotChatIntent> forcedIntent,
+    bool isWhisper,
+    bool isPartyChat,
+    bool isRaidChat)
 {
     if (!bot || !sBotPersonalityMgr.IsPlayerbot(bot))
         return std::nullopt;
@@ -692,7 +824,9 @@ std::optional<BotDialogueContext> BotDialogueMgr::BuildContext(
     context.intent = forcedIntent ? *forcedIntent : ParseIntent(message);
     context.personality = *personality;
     ApplyRelationshipContext(context, bot, sender);
-    context.isWhisper = true;
+    context.isWhisper = isWhisper;
+    context.isPartyChat = isPartyChat;
+    context.isRaidChat = isRaidChat;
 
     context.botInCombat = bot->IsInCombat();
     context.playerInCombat = sender && sender->IsInCombat();
@@ -789,6 +923,50 @@ bool BotDialogueMgr::IsEligibleWhisper(
         return false;
 
     if (!sBotPersonalityMgr.IsPlayerbot(bot))
+        return false;
+
+    if (!sender->CanSpeak())
+        return false;
+
+    if (message.empty() || message.size() > _config.maxInputLength)
+        return false;
+
+    if (IsAddonControlMessage(message))
+        return false;
+
+    if (NormalizeMessage(message).empty())
+        return false;
+
+    return true;
+}
+
+bool BotDialogueMgr::IsEligibleGroupChat(
+    Player* sender,
+    Group* group,
+    uint32 type,
+    uint32 language,
+    std::string const& message) const
+{
+    if (!IsChatEnabled() || !_config.respondToGroupChat)
+        return false;
+
+    if (language == LANG_ADDON)
+        return false;
+
+    if (type != CHAT_MSG_PARTY &&
+        type != CHAT_MSG_PARTY_LEADER &&
+        type != CHAT_MSG_RAID &&
+        type != CHAT_MSG_RAID_LEADER)
+        return false;
+
+    if (!IsValidOnlinePlayer(sender) || !group)
+        return false;
+
+    if (sender->GetSession()->IsBot() ||
+        sBotPersonalityMgr.IsPlayerbot(sender))
+        return false;
+
+    if (sender->GetGroup() != group)
         return false;
 
     if (!sender->CanSpeak())
@@ -1016,8 +1194,12 @@ void BotDialogueMgr::RecordSuccessfulResponse(
     _pairCooldowns[MakePairKey(context.botGuid, context.playerGuid)] = nowMs;
     _botCooldowns[context.botGuid] = nowMs;
     _rateWindows[context.botGuid].push_back(nowMs);
-    _recentResponses[MakeRecentResponseKey(context.botGuid, context.intent)] =
-        response;
+    if (!response.empty())
+    {
+        _recentResponses[
+            MakeRecentResponseKey(context.botGuid, context.intent)] =
+            response;
+    }
 
     TrimMapToLimit(_pairCooldowns);
     TrimMapToLimit(_botCooldowns);
@@ -1181,6 +1363,42 @@ void BotDialogueMgr::QueueWhisper(
     }
 }
 
+void BotDialogueMgr::QueueGroupReply(
+    Player* bot,
+    Player* receiver,
+    BotDialogueContext const& context,
+    std::string response,
+    uint32 nowMs)
+{
+    TruncateUtf8Bytes(response, _config.maxOutputLength);
+    if (response.empty())
+        return;
+
+    PendingReply& reply = _pendingReplies.emplace_back();
+    reply.botGuid = bot->GetGUID();
+    reply.playerGuid = receiver->GetGUID();
+    reply.groupId = bot->GetGroup() ?
+        bot->GetGroup()->GetGUID().GetCounter() :
+        0;
+    reply.context = context;
+    reply.response = std::move(response);
+    reply.queuedAtMs = nowMs;
+    reply.delayMs = CalculateReplyDelay(reply.context, reply.response);
+
+    while (_pendingReplies.size() > MAX_CHAT_CACHE_ENTRIES)
+        _pendingReplies.pop_front();
+
+    if (_config.debugLogging)
+    {
+        LOG_DEBUG(
+            "module.botpersonality.chat",
+            "Queued delayed group reply bot {} player {} delay {} ms",
+            context.botGuid,
+            context.playerGuid,
+            reply.delayMs);
+    }
+}
+
 void BotDialogueMgr::ProcessPendingReplies(uint32 nowMs)
 {
     for (auto itr = _pendingReplies.begin(); itr != _pendingReplies.end();)
@@ -1220,14 +1438,28 @@ void BotDialogueMgr::DeliverPendingReply(PendingReply& reply)
         return;
     }
 
-    if (!SendWhisper(bot, receiver, reply.response))
+    bool sent = false;
+    if (reply.context.isWhisper)
+        sent = SendWhisper(bot, receiver, reply.response);
+    else
+    {
+        if (reply.groupId &&
+            (!bot->GetGroup() ||
+                bot->GetGroup()->GetGUID().GetCounter() != reply.groupId))
+            return;
+
+        sent = SendGroupChat(bot, receiver, reply.context, reply.response);
+    }
+
+    if (!sent)
         return;
 
     if (_config.debugLogging)
     {
         LOG_DEBUG(
             "module.botpersonality.chat",
-            "Delayed whisper sent for bot {} to player {}",
+            "Delayed {} sent for bot {} to player {}",
+            reply.context.isWhisper ? "whisper" : "group chat",
             reply.context.botGuid,
             reply.context.playerGuid);
     }
@@ -1247,6 +1479,59 @@ bool BotDialogueMgr::SendWhisper(
 
     bot->Whisper(response, LANG_UNIVERSAL, receiver);
     return true;
+}
+
+bool BotDialogueMgr::SendGroupChat(
+    Player* bot,
+    Player* receiver,
+    BotDialogueContext const& context,
+    std::string& response)
+{
+    if (!IsValidOnlinePlayer(bot) || !IsValidOnlinePlayer(receiver))
+        return false;
+
+    Group* group = bot->GetGroup();
+    if (!group || group != receiver->GetGroup())
+        return false;
+
+    TruncateUtf8Bytes(response, _config.maxOutputLength);
+    if (response.empty())
+        return false;
+
+    ChatMsg const chatType = context.isRaidChat ?
+        CHAT_MSG_RAID :
+        CHAT_MSG_PARTY;
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(
+        data,
+        chatType,
+        response,
+        LANG_UNIVERSAL,
+        CHAT_TAG_NONE,
+        bot->GetGUID(),
+        bot->GetName());
+
+    bool sent = false;
+    uint8 const targetSubgroup = group->GetMemberGroup(receiver->GetGUID());
+    for (GroupReference* itr = group->GetFirstMember();
+        itr != nullptr;
+        itr = itr->next())
+    {
+        Player* player = itr->GetSource();
+        if (!IsValidOnlinePlayer(player) ||
+            sBotPersonalityMgr.IsPlayerbot(player))
+            continue;
+
+        if (context.isPartyChat &&
+            group->isRaidGroup() &&
+            group->GetMemberGroup(player->GetGUID()) != targetSubgroup)
+            continue;
+
+        player->GetSession()->SendPacket(&data);
+        sent = true;
+    }
+
+    return sent;
 }
 
 void BotDialogueMgr::Cleanup(uint32 nowMs)

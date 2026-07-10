@@ -272,9 +272,12 @@ BotPersonality.Gameplay.RepeatedPlayerDeathFamiliarity = 1
 BotPersonality.Chat.Enable = 1
 
 # Allow Playerbots to answer eligible direct whispers from real players.
-# Phase 2 does not proactively speak in party, raid, say, yell, guild, or BG.
 # Default: 1
 BotPersonality.Chat.RespondToWhispers = 1
+
+# Allow one eligible Playerbot to answer real player party/raid chat.
+# Default: 1
+BotPersonality.Chat.RespondToGroupChat = 1
 
 # Allow low-probability responses for messages with no recognized intent.
 # Default: 1
@@ -327,7 +330,7 @@ BotPersonality.Chat.MinimumInsultChance = 40
 # Default: 25
 BotPersonality.Chat.UnknownChance = 25
 
-# Add a human-like delay before bot whisper replies are sent.
+# Add a human-like delay before bot reactive chat replies are sent.
 # This only delays the reply; the WoW 3.3.5a client has no typing indicator.
 # Default: 1
 BotPersonality.Chat.ReplyDelay.Enable = 1
@@ -476,6 +479,112 @@ BotPersonality.ProactiveChat.LowManaCooldownSeconds = 120
 BotPersonality.ProactiveChat.EnableInactivityDialogue = 1
 BotPersonality.ProactiveChat.InactivityMinutes = 5
 BotPersonality.ProactiveChat.InactivityCooldownMinutes = 15
+
+##################################################
+# BOT PERSONALITY LLM CONFIGURATION              #
+##################################################
+
+# Enable optional OpenAI-compatible LLM dialogue generation.
+# The model only generates wording; server logic remains authoritative.
+# Default: 0
+BotPersonality.LLM.Enable = 0
+
+# Enable LLM diagnostics. Prompts/responses remain redacted unless the separate
+# restricted prompt logging options are enabled.
+# Default: 0
+BotPersonality.LLM.DebugLogging = 0
+
+# Provider mode: Template, Llm, or Hybrid.
+# Template never calls the endpoint. Hybrid uses configured routes.
+# Default: Hybrid
+BotPersonality.LLM.Mode = Hybrid
+
+BotPersonality.LLM.EnableForWhispers = 1
+BotPersonality.LLM.EnableForGroupChat = 1
+BotPersonality.LLM.EnableForProactiveChat = 1
+BotPersonality.LLM.EnableForBotBanter = 0
+
+# OpenAI-compatible Chat Completions endpoint.
+# This implementation supports plain HTTP endpoints from worker threads.
+BotPersonality.LLM.Endpoint = http://127.0.0.1:11434/v1/chat/completions
+BotPersonality.LLM.AllowRemoteEndpoint = 0
+BotPersonality.LLM.AllowHttpWithoutTls = 1
+
+BotPersonality.LLM.Model = local-model
+BotPersonality.LLM.ApiKeyEnvironmentVariable = WOW_BOT_LLM_API_KEY
+
+BotPersonality.LLM.ConnectTimeoutMs = 2000
+BotPersonality.LLM.RequestTimeoutMs = 7000
+BotPersonality.LLM.ReactiveResponseDeadlineMs = 8000
+BotPersonality.LLM.ProactiveResponseDeadlineMs = 5000
+
+BotPersonality.LLM.Workers = 2
+BotPersonality.LLM.MaxInFlightRequests = 4
+BotPersonality.LLM.Queue.MaxPendingRequests = 100
+BotPersonality.LLM.Queue.MaxPendingPerBot = 1
+BotPersonality.LLM.Queue.MaxPendingPerPlayer = 3
+BotPersonality.LLM.Queue.MaxCompletedResults = 200
+
+BotPersonality.LLM.RateLimit.MaxRequestsPerMinute = 30
+BotPersonality.LLM.RateLimit.MaxRequestsPerPlayerPerMinute = 10
+BotPersonality.LLM.RateLimit.MaxRequestsPerBotPerMinute = 10
+BotPersonality.LLM.RateLimit.MinIntervalPerConversationMs = 3000
+
+BotPersonality.LLM.History.Enable = 1
+BotPersonality.LLM.History.MaxTurns = 8
+BotPersonality.LLM.History.MaxCharacters = 2000
+BotPersonality.LLM.History.ExpiryMinutes = 30
+BotPersonality.LLM.History.MaxConversations = 10000
+
+BotPersonality.LLM.MaxPromptCharacters = 6000
+BotPersonality.LLM.MaxOutputCharacters = 180
+BotPersonality.LLM.MaxOutputWords = 30
+BotPersonality.LLM.AllowMultiline = 0
+BotPersonality.LLM.TruncateLongOutput = 0
+
+BotPersonality.LLM.Temperature = 0.8
+BotPersonality.LLM.TopP = 0.9
+BotPersonality.LLM.MaxTokens = 80
+BotPersonality.LLM.FrequencyPenalty = 0.2
+BotPersonality.LLM.PresencePenalty = 0.0
+
+BotPersonality.LLM.FallbackToTemplates = 1
+BotPersonality.LLM.CircuitBreaker.FailureThreshold = 5
+BotPersonality.LLM.CircuitBreaker.OpenSeconds = 60
+BotPersonality.LLM.RetryCount = 0
+BotPersonality.LLM.RetryDelayMs = 250
+BotPersonality.LLM.LogPrompts = 0
+BotPersonality.LLM.LogResponses = 0
+
+# Hybrid routing defaults. Critical health and low-mana events remain
+# template-based because they are time-sensitive.
+BotPersonality.LLM.Route.Greeting = 1
+BotPersonality.LLM.Route.Farewell = 1
+BotPersonality.LLM.Route.Thanks = 1
+BotPersonality.LLM.Route.Praise = 1
+BotPersonality.LLM.Route.Apology = 1
+BotPersonality.LLM.Route.Insult = 1
+BotPersonality.LLM.Route.HelpRequest = 1
+BotPersonality.LLM.Route.IdentityQuestion = 1
+BotPersonality.LLM.Route.WellbeingQuestion = 1
+BotPersonality.LLM.Route.Agreement = 1
+BotPersonality.LLM.Route.Disagreement = 1
+BotPersonality.LLM.Route.Unknown = 1
+
+BotPersonality.LLM.Route.GroupJoined = 0
+BotPersonality.LLM.Route.DungeonEntered = 1
+BotPersonality.LLM.Route.EliteKill = 0
+BotPersonality.LLM.Route.BossKill = 1
+BotPersonality.LLM.Route.Resurrection = 1
+BotPersonality.LLM.Route.PlayerDeath = 0
+BotPersonality.LLM.Route.RepeatedPlayerDeath = 1
+BotPersonality.LLM.Route.GroupWipe = 1
+BotPersonality.LLM.Route.DungeonComplete = 1
+BotPersonality.LLM.Route.RaidEncounterComplete = 1
+BotPersonality.LLM.Route.LowHealth = 0
+BotPersonality.LLM.Route.CriticalHealth = 0
+BotPersonality.LLM.Route.LowMana = 0
+BotPersonality.LLM.Route.Inactivity = 0
 
 # Force proactive chance to 100% for debugging.
 BotPersonality.ProactiveChat.ForceDialogueForDebug = 0

@@ -1,5 +1,6 @@
 #include "BotProactiveDialogueMgr.h"
 
+#include "BotLlmMgr.h"
 #include "BotMoodMgr.h"
 #include "BotPersonalityMgr.h"
 #include "BotProactiveTemplates.h"
@@ -1389,6 +1390,21 @@ bool BotProactiveDialogueMgr::DeliverEvent(
         }
 
         return false;
+    }
+
+    if (sBotLlmMgr.TryQueueProactive(
+            speaker,
+            group,
+            result.context,
+            result.response))
+    {
+        _coordinator.RecordMessage(
+            event.groupId,
+            speaker,
+            event.event,
+            nowMs,
+            event.isBanterReply);
+        return true;
     }
 
     if (!SendChat(speaker, group, result.context, result.response))

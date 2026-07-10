@@ -1,5 +1,6 @@
 #include "BotDialogueMgr.h"
 
+#include "Group.h"
 #include "PlayerScript.h"
 #include "SharedDefines.h"
 
@@ -12,7 +13,8 @@ public:
         : PlayerScript(
               "BotPersonalityChatScript",
               {
-                  PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT
+                  PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT,
+                  PLAYERHOOK_CAN_PLAYER_USE_GROUP_CHAT
               })
     {
     }
@@ -32,6 +34,23 @@ public:
                 language,
                 message);
         }
+
+        return true;
+    }
+
+    bool OnPlayerCanUseChat(
+        Player* player,
+        uint32 type,
+        uint32 language,
+        std::string& message,
+        Group* group) override
+    {
+        sBotDialogueMgr.HandleIncomingGroupChat(
+            player,
+            group,
+            type,
+            language,
+            message);
 
         return true;
     }

@@ -2,6 +2,7 @@
 
 #include "BotDialogueMgr.h"
 #include "BotGameplayTracker.h"
+#include "BotLlmMgr.h"
 #include "BotMoodMgr.h"
 #include "BotRelationshipMgr.h"
 #include "BotProactiveDialogueMgr.h"
@@ -256,6 +257,7 @@ void SendRootUsage(ChatHandler* handler)
     Send(handler, "Usage: .botpersonality gameplay");
     Send(handler, "Usage: .botpersonality mood");
     Send(handler, "Usage: .botpersonality proactive");
+    Send(handler, "Usage: .botpersonality llm");
 }
 
 void SendChatUsage(ChatHandler* handler)
@@ -336,6 +338,20 @@ void SendProactiveUsage(ChatHandler* handler)
         handler,
         "Usage: .botpersonality proactive force <botName> <event> "
         "[playerName]");
+}
+
+void SendLlmUsage(ChatHandler* handler)
+{
+    Send(handler, "Usage: .botpersonality llm status");
+    Send(handler, "Usage: .botpersonality llm health");
+    Send(handler, "Usage: .botpersonality llm metrics");
+    Send(handler, "Usage: .botpersonality llm queue");
+    Send(handler, "Usage: .botpersonality llm test <bot> <player> <message>");
+    Send(handler, "Usage: .botpersonality llm prompt <bot> <player> <message>");
+    Send(handler, "Usage: .botpersonality llm clearhistory [bot] [player]");
+    Send(handler, "Usage: .botpersonality llm clearqueue");
+    Send(handler, "Usage: .botpersonality llm resetmetrics");
+    Send(handler, "Usage: .botpersonality llm resetcircuit");
 }
 
 std::string TrimArgs(char const* args)
@@ -605,6 +621,7 @@ public:
             { "gameplay", GetGameplayCommandTable() },
             { "mood", GetMoodCommandTable() },
             { "proactive", GetProactiveCommandTable() },
+            { "llm", GetLlmCommandTable() },
             {
                 "clearcache",
                 HandleClearCacheCommand,
@@ -819,6 +836,51 @@ public:
         };
 
         return proactiveCommandTable;
+    }
+
+    static ChatCommandTable const& GetLlmCommandTable()
+    {
+        static ChatCommandTable llmCommandTable =
+        {
+            { "status", HandleLlmStatusCommand, SEC_GAMEMASTER, Console::Yes },
+            { "health", HandleLlmHealthCommand, SEC_GAMEMASTER, Console::Yes },
+            {
+                "metrics",
+                HandleLlmMetricsCommand,
+                SEC_GAMEMASTER,
+                Console::Yes
+            },
+            { "queue", HandleLlmQueueCommand, SEC_GAMEMASTER, Console::Yes },
+            { "test", HandleLlmTestCommand, SEC_GAMEMASTER, Console::Yes },
+            { "prompt", HandleLlmPromptCommand, SEC_ADMINISTRATOR, Console::Yes },
+            {
+                "clearhistory",
+                HandleLlmClearHistoryCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            {
+                "clearqueue",
+                HandleLlmClearQueueCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            {
+                "resetmetrics",
+                HandleLlmResetMetricsCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            {
+                "resetcircuit",
+                HandleLlmResetCircuitCommand,
+                SEC_ADMINISTRATOR,
+                Console::Yes
+            },
+            { "", HandleLlmHelpCommand, SEC_GAMEMASTER, Console::Yes }
+        };
+
+        return llmCommandTable;
     }
 
     static bool HandleHelpCommand(ChatHandler* handler, char const* /*args*/)
@@ -2299,6 +2361,290 @@ public:
 
         sBotProactiveDialogueMgr.ClearCooldowns();
         Send(handler, "Bot Personality proactive cooldowns cleared.");
+        return true;
+    }
+
+    static bool HandleLlmHelpCommand(ChatHandler* handler, char const* /*args*/)
+    {
+        SendLlmUsage(handler);
+        return true;
+    }
+
+    static bool HandleLlmStatusCommand(ChatHandler* handler, char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality llm status");
+            return false;
+        }
+
+        BotLlmRuntimeStats const stats = sBotLlmMgr.GetStats();
+        Send(handler, "LLM enabled: {}", stats.enabled ? "Yes" : "No");
+        Send(handler, "Mode: {}", BotLlmProviderModeToString(stats.mode));
+        Send(handler, "Provider: OpenAICompatible");
+        Send(handler, "Endpoint: {}", stats.endpoint);
+        Send(handler, "Model: {}", stats.model);
+        Send(handler, "API key configured: {}",
+            stats.apiKeyConfigured ? "Yes" : "No");
+        Send(handler, "Whispers: {}",
+            stats.enableForWhispers ? "Enabled" : "Disabled");
+        Send(handler, "Reactive group chat: {}",
+            stats.enableForGroupChat ? "Enabled" : "Disabled");
+        Send(handler, "Proactive chat: {}",
+            stats.enableForProactiveChat ? "Enabled" : "Disabled");
+        Send(handler, "Template fallback: {}",
+            stats.fallbackToTemplates ? "Enabled" : "Disabled");
+        Send(handler, "Workers: {}", stats.workers);
+        Send(handler, "Maximum in-flight: {}", stats.maxInFlight);
+        return true;
+    }
+
+    static bool HandleLlmHealthCommand(ChatHandler* handler, char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality llm health");
+            return false;
+        }
+
+        BotLlmRuntimeStats const stats = sBotLlmMgr.GetStats();
+        uint32 const nowMs = getMSTime();
+        Send(handler, "Circuit state: {}",
+            BotLlmCircuitStateToString(stats.circuitState));
+        Send(handler, "Consecutive failures: {}", stats.consecutiveFailures);
+        Send(handler, "Last success: {} ms ago",
+            stats.lastSuccessMs ? getMSTimeDiff(stats.lastSuccessMs, nowMs) :
+                0);
+        Send(handler, "Last failure: {} ms ago",
+            stats.lastFailureMs ? getMSTimeDiff(stats.lastFailureMs, nowMs) :
+                0);
+        Send(handler, "Pending requests: {}", stats.pendingRequests);
+        Send(handler, "In-flight requests: {}", stats.inFlightRequests);
+        Send(handler, "Completed results awaiting processing: {}",
+            stats.completedResults);
+        return true;
+    }
+
+    static bool HandleLlmMetricsCommand(ChatHandler* handler, char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality llm metrics");
+            return false;
+        }
+
+        BotLlmRuntimeStats const stats = sBotLlmMgr.GetStats();
+        BotLlmMetrics const& m = stats.metrics;
+        uint64 const average = m.completedSuccessfully ?
+            m.totalLatencyMs / m.completedSuccessfully :
+            0;
+        Send(handler, "Requests attempted: {}", m.requestsAttempted);
+        Send(handler, "Requests queued: {}", m.requestsQueued);
+        Send(handler, "Rejected by queue: {}", m.rejectedByQueue);
+        Send(handler, "Rejected by rate limit: {}", m.rejectedByRateLimit);
+        Send(handler, "Completed successfully: {}", m.completedSuccessfully);
+        Send(handler, "Timed out: {}", m.timedOut);
+        Send(handler, "HTTP failures: {}", m.httpFailures);
+        Send(handler, "JSON failures: {}", m.jsonFailures);
+        Send(handler, "Validator rejections: {}", m.rejectedByValidator);
+        Send(handler, "Stale rejections: {}", m.rejectedAsStale);
+        Send(handler, "Template fallbacks: {}", m.templateFallbacks);
+        Send(handler, "Silent failures: {}", m.silentFailures);
+        Send(handler, "Average latency: {} ms", average);
+        Send(handler, "Max latency: {} ms", m.maxLatencyMs);
+        return true;
+    }
+
+    static bool HandleLlmQueueCommand(ChatHandler* handler, char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality llm queue");
+            return false;
+        }
+
+        std::vector<BotLlmQueueEntry> entries = sBotLlmMgr.GetQueue(20);
+        Send(handler, "Pending LLM requests: {}", entries.size());
+        for (BotLlmQueueEntry const& entry : entries)
+        {
+            Send(
+                handler,
+                "#{} {} bot {} player {} group {} age {} ms deadline {} ms",
+                entry.requestId,
+                BotLlmRequestTypeToString(entry.type),
+                entry.botGuid,
+                entry.playerGuid,
+                entry.groupId,
+                entry.ageMs,
+                entry.deadlineRemainingMs);
+        }
+
+        return true;
+    }
+
+    static bool ReadLlmNamesAndMessage(
+        char const* args,
+        std::string& botName,
+        std::string& playerName,
+        std::string& message)
+    {
+        std::istringstream stream(TrimArgs(args).c_str());
+        if (!(stream >> botName >> playerName))
+            return false;
+
+        std::getline(stream, message);
+        message = TrimArgs(message.c_str());
+        return !message.empty();
+    }
+
+    static bool HandleLlmTestCommand(ChatHandler* handler, char const* args)
+    {
+        std::string botName;
+        std::string playerName;
+        std::string message;
+        if (!ReadLlmNamesAndMessage(args, botName, playerName, message))
+        {
+            Send(handler, "Usage: .botpersonality llm test <bot> <player> <message>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, botName);
+        Player* player = FindOnlineRealPlayer(handler, playerName);
+        if (!bot || !player)
+            return true;
+
+        uint64 requestId = 0;
+        if (!sBotLlmMgr.QueueDebugWhisper(
+                bot,
+                player,
+                message,
+                false,
+                requestId))
+        {
+            Send(handler, "Unable to queue LLM test request.");
+            return true;
+        }
+
+        Send(handler, "Queued LLM test request #{}.", requestId);
+        Send(handler, "Preview-only; no player whisper will be sent.");
+        return true;
+    }
+
+    static bool HandleLlmPromptCommand(ChatHandler* handler, char const* args)
+    {
+        std::string botName;
+        std::string playerName;
+        std::string message;
+        if (!ReadLlmNamesAndMessage(args, botName, playerName, message))
+        {
+            Send(handler, "Usage: .botpersonality llm prompt <bot> <player> <message>");
+            return false;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, botName);
+        Player* player = FindOnlineRealPlayer(handler, playerName);
+        if (!bot || !player)
+            return true;
+
+        std::optional<BotLlmPrompt> prompt =
+            sBotLlmMgr.BuildPromptPreview(bot, player, message);
+        if (!prompt)
+        {
+            Send(handler, "Unable to build LLM prompt preview.");
+            return true;
+        }
+
+        Send(handler, "System message:");
+        Send(handler, prompt->systemMessage.substr(0, 1800));
+        Send(handler, "User message:");
+        Send(handler, prompt->userMessage.substr(0, 800));
+        Send(handler, "Prompt characters: {}", prompt->promptCharacters);
+        Send(handler, "History turns: {}", prompt->historyTurnsIncluded);
+        return true;
+    }
+
+    static bool HandleLlmClearHistoryCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        std::vector<std::string> tokens = TokenizeArgs(args);
+        if (tokens.empty())
+        {
+            sBotLlmMgr.ClearHistory();
+            Send(handler, "All LLM conversation history cleared.");
+            return true;
+        }
+
+        Player* bot = FindOnlineCharacter(handler, tokens[0]);
+        if (!bot)
+            return true;
+
+        if (tokens.size() == 1)
+        {
+            sBotLlmMgr.ClearHistory(bot->GetGUID().GetCounter());
+            Send(handler, "LLM history cleared for '{}'.", bot->GetName());
+            return true;
+        }
+
+        if (tokens.size() == 2)
+        {
+            Player* player = FindOnlineRealPlayer(handler, tokens[1]);
+            if (!player)
+                return true;
+
+            sBotLlmMgr.ClearHistory(
+                bot->GetGUID().GetCounter(),
+                player->GetGUID().GetCounter());
+            Send(handler, "LLM history cleared for pair.");
+            return true;
+        }
+
+        Send(handler, "Usage: .botpersonality llm clearhistory [bot] [player]");
+        return false;
+    }
+
+    static bool HandleLlmClearQueueCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality llm clearqueue");
+            return false;
+        }
+
+        sBotLlmMgr.ClearQueue();
+        Send(handler, "LLM pending and completed queues cleared.");
+        return true;
+    }
+
+    static bool HandleLlmResetMetricsCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality llm resetmetrics");
+            return false;
+        }
+
+        sBotLlmMgr.ResetMetrics();
+        Send(handler, "LLM metrics reset.");
+        return true;
+    }
+
+    static bool HandleLlmResetCircuitCommand(
+        ChatHandler* handler,
+        char const* args)
+    {
+        if (!TokenizeArgs(args).empty())
+        {
+            Send(handler, "Usage: .botpersonality llm resetcircuit");
+            return false;
+        }
+
+        sBotLlmMgr.ResetCircuit();
+        Send(handler, "LLM circuit breaker reset.");
         return true;
     }
 };
