@@ -172,6 +172,9 @@ void BotLlmMgr::LoadConfig(bool reload)
     _config.enableForBotBanter = sConfigMgr->GetOption<bool>(
         "BotPersonality.LLM.EnableForBotBanter",
         false);
+    _config.suppressPlayerbotsCommands = sConfigMgr->GetOption<bool>(
+        "BotPersonality.LLM.SuppressPlayerbotsCommands",
+        true);
     _config.fallbackToTemplates = sConfigMgr->GetOption<bool>(
         "BotPersonality.LLM.FallbackToTemplates",
         true);
@@ -453,6 +456,13 @@ void BotLlmMgr::LoadConfig(bool reload)
         "Bot Personality Phase 6 LLM {}{}",
         _config.enable ? "enabled" : "disabled",
         reload ? " after config reload" : "");
+}
+
+bool BotLlmMgr::ShouldSuppressPlayerbotsCommands() const
+{
+    return _config.enable &&
+        _config.suppressPlayerbotsCommands &&
+        _config.mode != BotLlmProviderMode::Template;
 }
 
 void BotLlmMgr::Update(uint32 /*diff*/)
@@ -1386,6 +1396,7 @@ BotLlmRuntimeStats BotLlmMgr::GetStats() const
     stats.enableForWhispers = _config.enableForWhispers;
     stats.enableForGroupChat = _config.enableForGroupChat;
     stats.enableForProactiveChat = _config.enableForProactiveChat;
+    stats.suppressPlayerbotsCommands = ShouldSuppressPlayerbotsCommands();
     stats.endpoint = RedactEndpoint(_config.endpoint);
     stats.model = _config.model;
     stats.workers = static_cast<uint32>(_workers.size());

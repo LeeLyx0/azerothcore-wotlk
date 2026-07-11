@@ -479,7 +479,8 @@ bool BotDialogueMgr::HandleIncomingGroupChat(
             group->GetMemberGroup(member->GetGUID()) != senderSubgroup)
             continue;
 
-        if (IsPlayerbotsCommand(member, message))
+        if (ShouldRespectPlayerbotsCommands() &&
+            IsPlayerbotsCommand(member, message))
         {
             if (_config.debugLogging)
             {
@@ -536,7 +537,7 @@ bool BotDialogueMgr::HandleIncomingDialogue(
     if (isWhisper && !IsEligibleWhisper(sender, bot, language, message))
         return false;
 
-    if (IsPlayerbotsCommand(bot, message))
+    if (ShouldRespectPlayerbotsCommands() && IsPlayerbotsCommand(bot, message))
     {
         if (_config.debugLogging)
         {
@@ -982,6 +983,11 @@ bool BotDialogueMgr::IsEligibleGroupChat(
         return false;
 
     return true;
+}
+
+bool BotDialogueMgr::ShouldRespectPlayerbotsCommands() const
+{
+    return !sBotLlmMgr.ShouldSuppressPlayerbotsCommands();
 }
 
 bool BotDialogueMgr::IsAddonControlMessage(

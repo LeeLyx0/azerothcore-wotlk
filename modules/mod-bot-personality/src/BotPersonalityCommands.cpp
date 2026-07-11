@@ -2392,6 +2392,8 @@ public:
             stats.enableForGroupChat ? "Enabled" : "Disabled");
         Send(handler, "Proactive chat: {}",
             stats.enableForProactiveChat ? "Enabled" : "Disabled");
+        Send(handler, "Playerbots chat commands: {}",
+            stats.suppressPlayerbotsCommands ? "Suspended" : "Allowed");
         Send(handler, "Template fallback: {}",
             stats.fallbackToTemplates ? "Enabled" : "Disabled");
         Send(handler, "Workers: {}", stats.workers);

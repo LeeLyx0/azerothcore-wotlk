@@ -166,6 +166,7 @@ private:
         uint32 type,
         uint32 language,
         std::string const& message) const;
+    bool ShouldRespectPlayerbotsCommands() const;
     bool IsAddonControlMessage(std::string const& message) const;
     bool IsPlayerbotsCommand(Player* bot, std::string const& message) const;
 

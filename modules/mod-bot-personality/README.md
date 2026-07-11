@@ -226,6 +226,9 @@ Phase 6 LLM options:
 - `BotPersonality.LLM.EnableForWhispers`, `.EnableForGroupChat`, and
   `.EnableForProactiveChat`: route control for reactive whispers, reactive
   party/raid chat, and proactive event chatter.
+- `BotPersonality.LLM.SuppressPlayerbotsCommands`: suspends mod-playerbots
+  whisper/party command parsing while LLM mode is active, keeping command-like
+  words conversational.
 - `BotPersonality.LLM.Workers`, `.MaxInFlightRequests`, and `Queue.*`: bounded
   async worker and queue limits.
 - `BotPersonality.LLM.RateLimit.*`: global, per-player, per-bot, and
@@ -693,7 +696,9 @@ template matches, Phase 2 personality-only templates remain the fallback.
 Phase 6 adds an optional OpenAI-compatible Chat Completions client. The LLM is
 used only after existing server logic has decided that a bot may speak. It does
 not detect intent, choose speakers, update relationships, alter mood, inspect
-the database, execute commands, or control Playerbots.
+the database, execute commands, or control Playerbots. The prompt targets
+real WoW Classic player chat rather than roleplay, NPC dialogue, or fantasy
+narration.
 
 The request flow is:
 
@@ -715,11 +720,14 @@ All chat sending happens later on the world thread after object revalidation.
 The prompt uses one server-authored system message, bounded recent conversation
 turns, and one user message. Player text is treated as untrusted and is never
 inserted into the system instructions. Numeric personality, relationship, and
-mood values are converted into qualitative descriptions before being sent.
+mood values are converted into qualitative descriptions before being sent. The
+style instructions prefer short, casual, practical MMO phrasing and explicitly
+avoid quest-giver tone, lore speeches, emotes, and theatrical roleplay.
 
 Conversation history is memory-only, per bot/player pair, bounded by turn count
-and character count, and expires after inactivity. Playerbots commands and
-addon messages are rejected before LLM routing and are not stored.
+and character count, and expires after inactivity. Addon messages are rejected
+before LLM routing and are not stored. Playerbots command-like text is rejected
+only when `BotPersonality.LLM.SuppressPlayerbotsCommands` is disabled.
 
 The response validator trims speaker labels and quotes, rejects multiline text
 when disabled, rejects command-looking output, rejects AI/self-disclosure or
@@ -767,16 +775,22 @@ Useful checks:
 
 ## Command Compatibility
 
-Existing Playerbots commands remain owned by `mod-playerbots`. The chat hook
-never blocks player chat and never executes bot commands. Before generating a
-personality response it probes the target bot's Playerbots trigger registry
-with the same exact-then-leading-phrase shape used by
+Existing Playerbots commands remain owned by `mod-playerbots` when LLM
+immersion mode is not suppressing them. With
+`BotPersonality.LLM.SuppressPlayerbotsCommands = 1`, direct whisper and
+party/raid command parsing in `mod-playerbots` is suspended while LLM mode is
+active, so words such as `inventory`, `guild`, or `leave` can be treated as
+normal conversation.
+
+When command suppression is disabled, the chat hook never blocks player chat
+and never executes bot commands. Before generating a personality response it
+probes the target bot's Playerbots trigger registry with the same
+exact-then-leading-phrase shape used by
 `ExternalEventHelper::ParseChatCommand`, while also respecting the configured
 Playerbots command prefix, command separator, chat target prefixes, `reset`,
-`logout`, `debug`, `do`, and item-link auto-trade detection.
-
-If Playerbots recognizes a whisper or group message as a command, personality
-chat remains silent and allows Playerbots to handle it normally.
+`logout`, `debug`, `do`, and item-link auto-trade detection. If Playerbots
+recognizes a whisper or group message as a command, personality chat remains
+silent and allows Playerbots to handle it normally.
 
 ## Cooldowns And Spam Control
 

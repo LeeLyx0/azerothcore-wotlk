@@ -33,6 +33,7 @@ public:
 
     bool IsEnabled() const { return _config.enable; }
     bool IsDebugLoggingEnabled() const { return _config.debugLogging; }
+    bool ShouldSuppressPlayerbotsCommands() const;
 
     bool TryQueueWhisper(
         Player* bot,
@@ -80,6 +81,7 @@ private:
         bool enableForGroupChat = true;
         bool enableForProactiveChat = true;
         bool enableForBotBanter = false;
+        bool suppressPlayerbotsCommands = true;
         bool fallbackToTemplates = true;
 
         std::string endpoint =

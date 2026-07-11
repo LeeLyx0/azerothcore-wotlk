@@ -166,6 +166,7 @@ struct BotLlmRuntimeStats
     bool enableForWhispers = true;
     bool enableForGroupChat = true;
     bool enableForProactiveChat = true;
+    bool suppressPlayerbotsCommands = true;
     std::string endpoint;
     std::string model;
     uint32 workers = 0;

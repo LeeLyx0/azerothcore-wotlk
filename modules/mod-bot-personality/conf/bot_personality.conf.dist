@@ -504,6 +504,11 @@ BotPersonality.LLM.EnableForGroupChat = 1
 BotPersonality.LLM.EnableForProactiveChat = 1
 BotPersonality.LLM.EnableForBotBanter = 0
 
+# Suspend mod-playerbots whisper/party command parsing while LLM mode is active.
+# This keeps normal phrases such as "inventory", "guild", or "where is the inn"
+# conversational instead of triggering command output.
+BotPersonality.LLM.SuppressPlayerbotsCommands = 1
+
 # OpenAI-compatible Chat Completions endpoint.
 # This implementation supports plain HTTP endpoints from worker threads.
 BotPersonality.LLM.Endpoint = http://127.0.0.1:11434/v1/chat/completions
