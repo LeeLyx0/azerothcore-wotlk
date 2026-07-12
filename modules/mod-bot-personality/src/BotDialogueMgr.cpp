@@ -1,5 +1,7 @@
 #include "BotDialogueMgr.h"
 
+#include "BotConversationSessionMgr.h"
+#include "BotMemoryMgr.h"
 #include "IBotDialogueProvider.h"
 #include "BotLlmMgr.h"
 #include "BotMoodMgr.h"
@@ -309,6 +311,12 @@ void BotDialogueMgr::LoadConfig(bool reload)
         1,
         60,
         _config.debugLogging);
+    _config.groupSpeakerTimeoutMs = ReadClampedConfig(
+        "BotPersonality.Chat.GroupConversationSpeakerTimeoutSeconds",
+        90,
+        0,
+        600,
+        _config.debugLogging) * IN_MILLISECONDS;
     _config.maxInputLength = ReadClampedConfig(
         "BotPersonality.Chat.MaxInputLength",
         255,
@@ -498,7 +506,32 @@ bool BotDialogueMgr::HandleIncomingGroupChat(
     if (candidates.empty())
         return false;
 
-    if (candidates.size() > 1)
+    uint32 const nowMs = getMSTime();
+    uint64 const conversationKey = MakePairKey(
+        group->GetGUID().GetCounter(),
+        sender->GetGUID().GetCounter());
+    bool continuedConversation = false;
+    auto recentSpeaker = _recentGroupSpeakers.find(conversationKey);
+    if (recentSpeaker != _recentGroupSpeakers.end() &&
+        getMSTimeDiff(recentSpeaker->second.lastActivityMs, nowMs) <=
+            _config.groupSpeakerTimeoutMs)
+    {
+        auto preferred = std::find_if(
+            candidates.begin(),
+            candidates.end(),
+            [recentSpeaker](Player const* candidate)
+            {
+                return candidate->GetGUID().GetCounter() ==
+                    recentSpeaker->second.botGuid;
+            });
+        if (preferred != candidates.end())
+        {
+            std::rotate(candidates.begin(), preferred, preferred + 1);
+            continuedConversation = true;
+        }
+    }
+
+    if (!continuedConversation && candidates.size() > 1)
     {
         std::size_t const offset = urand(
             0,
@@ -519,7 +552,11 @@ bool BotDialogueMgr::HandleIncomingGroupChat(
                 false,
                 isPartyChat,
                 isRaidChat))
+        {
+            _recentGroupSpeakers[conversationKey] =
+                { bot->GetGUID().GetCounter(), nowMs };
             return true;
+        }
     }
 
     return false;
@@ -677,6 +714,15 @@ bool BotDialogueMgr::HandleIncomingDialogue(
     if (responseText.empty())
         return false;
 
+    if (!IsPlayerbotsCommand(bot, context->originalMessage))
+    {
+        sBotConversationSessionMgr.AddPlayerTurn(
+            bot,
+            sender,
+            context->originalMessage,
+            nowMs);
+    }
+
     if (sBotLlmMgr.TryQueueDialogue(bot, sender, *context, responseText))
     {
         RecordSuccessfulResponse(*context, "", nowMs);
@@ -796,6 +842,7 @@ void BotDialogueMgr::ClearChatState()
     _duplicates.clear();
     _rateWindows.clear();
     _recentResponses.clear();
+    _recentGroupSpeakers.clear();
     _pendingReplies.clear();
 }
 
@@ -824,6 +871,12 @@ std::optional<BotDialogueContext> BotDialogueMgr::BuildContext(
     context.originalMessage = message;
     context.intent = forcedIntent ? *forcedIntent : ParseIntent(message);
     context.personality = *personality;
+    if (sender)
+    {
+        context.memoryContext = sBotMemoryMgr.GetTemplateContext(
+            context.botGuid,
+            context.playerGuid);
+    }
     ApplyRelationshipContext(context, bot, sender);
     context.isWhisper = isWhisper;
     context.isPartyChat = isPartyChat;
@@ -1460,6 +1513,12 @@ void BotDialogueMgr::DeliverPendingReply(PendingReply& reply)
     if (!sent)
         return;
 
+    sBotConversationSessionMgr.AddBotTurn(
+        reply.context.botGuid,
+        reply.context.playerGuid,
+        reply.response,
+        getMSTime());
+
     if (_config.debugLogging)
     {
         LOG_DEBUG(
@@ -1594,9 +1653,20 @@ void BotDialogueMgr::Cleanup(uint32 nowMs)
             ++itr;
     }
 
+    for (auto itr = _recentGroupSpeakers.begin();
+        itr != _recentGroupSpeakers.end();)
+    {
+        if (getMSTimeDiff(itr->second.lastActivityMs, nowMs) >
+            _config.groupSpeakerTimeoutMs + RATE_WINDOW_MS)
+            itr = _recentGroupSpeakers.erase(itr);
+        else
+            ++itr;
+    }
+
     TrimMapToLimit(_pairCooldowns);
     TrimMapToLimit(_botCooldowns);
     TrimMapToLimit(_duplicates);
     TrimMapToLimit(_rateWindows);
     TrimMapToLimit(_recentResponses);
+    TrimMapToLimit(_recentGroupSpeakers);
 }

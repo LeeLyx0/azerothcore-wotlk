@@ -89,6 +89,7 @@ private:
         uint32 botCooldownMs = 2000;
         uint32 duplicateWindowMs = 15000;
         uint32 maxResponsesPerMinute = 8;
+        uint32 groupSpeakerTimeoutMs = 90 * 1000;
 
         uint32 maxInputLength = 255;
         uint32 maxOutputLength = 255;
@@ -115,6 +116,12 @@ private:
         uint32 messageHash = 0;
         uint32 lastSeenMs = 0;
         uint32 duplicateCount = 0;
+    };
+
+    struct RecentGroupSpeaker
+    {
+        uint32 botGuid = 0;
+        uint32 lastActivityMs = 0;
     };
 
     struct PendingReply
@@ -227,6 +234,7 @@ private:
     std::unordered_map<uint64, DuplicateRecord> _duplicates;
     std::unordered_map<uint32, std::deque<uint32>> _rateWindows;
     std::unordered_map<uint64, std::string> _recentResponses;
+    std::unordered_map<uint64, RecentGroupSpeaker> _recentGroupSpeakers;
     std::deque<PendingReply> _pendingReplies;
 
     uint32 _interactionCounter = 0;

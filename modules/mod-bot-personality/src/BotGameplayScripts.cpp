@@ -1,5 +1,6 @@
 #include "BotGameplayTracker.h"
 
+#include "BotConversationSessionMgr.h"
 #include "BotProactiveDialogueMgr.h"
 #include "Creature.h"
 #include "GlobalScript.h"
@@ -118,6 +119,7 @@ public:
     {
         sBotGameplayTracker.RecordGroupMemberRemoved(group, guid, method);
         sBotProactiveDialogueMgr.OnGroupMemberRemoved(group, guid);
+        sBotConversationSessionMgr.OnPlayerLogout(guid.GetCounter());
     }
 };
 

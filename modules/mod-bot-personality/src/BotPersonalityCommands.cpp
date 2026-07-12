@@ -3,6 +3,7 @@
 #include "BotDialogueMgr.h"
 #include "BotGameplayTracker.h"
 #include "BotLlmMgr.h"
+#include "BotMemoryCommands.h"
 #include "BotMoodMgr.h"
 #include "BotRelationshipMgr.h"
 #include "BotProactiveDialogueMgr.h"
@@ -258,6 +259,7 @@ void SendRootUsage(ChatHandler* handler)
     Send(handler, "Usage: .botpersonality mood");
     Send(handler, "Usage: .botpersonality proactive");
     Send(handler, "Usage: .botpersonality llm");
+    Send(handler, "Usage: .botpersonality memory");
 }
 
 void SendChatUsage(ChatHandler* handler)
@@ -622,6 +624,7 @@ public:
             { "mood", GetMoodCommandTable() },
             { "proactive", GetProactiveCommandTable() },
             { "llm", GetLlmCommandTable() },
+            { "memory", GetBotMemoryCommandTable() },
             {
                 "clearcache",
                 HandleClearCacheCommand,

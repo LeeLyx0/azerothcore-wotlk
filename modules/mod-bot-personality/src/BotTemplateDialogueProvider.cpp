@@ -1302,6 +1302,25 @@ std::string RenderTemplate(
 std::optional<std::string> BotTemplateDialogueProvider::GenerateResponse(
     BotDialogueContext const& context)
 {
+    if (context.intent == BotChatIntent::Greeting &&
+        context.memoryContext.hasSharedDungeonHistory)
+    {
+        static TemplateList const sharedRunGreetings =
+        {
+            "hey {player}, up for another run?",
+            "hey, good to see you again",
+            "yo {player}, running anything today?"
+        };
+        return RenderTemplate(
+            sharedRunGreetings[
+                context.selectionSeed % sharedRunGreetings.size()],
+            context);
+    }
+
+    if (context.intent == BotChatIntent::Thanks &&
+        context.memoryContext.hasRecentResurrectionMemory)
+        return RenderTemplate("np, you got me back up before", context);
+
     TemplateList const* templates = nullptr;
 
     if (context.hasExistingRelationship)

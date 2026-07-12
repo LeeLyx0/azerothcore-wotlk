@@ -307,6 +307,10 @@ BotPersonality.Chat.DuplicateWindowMs = 15000
 # Default: 8
 BotPersonality.Chat.MaxResponsesPerMinute = 8
 
+# Keep the same bot as speaker for follow-up party/raid conversation.
+# Set to 0 to select a new speaker for every message.
+BotPersonality.Chat.GroupConversationSpeakerTimeoutSeconds = 90
+
 # Maximum input length considered by personality chat.
 # Valid range: 1-255
 # Default: 255
@@ -590,6 +594,62 @@ BotPersonality.LLM.Route.LowHealth = 0
 BotPersonality.LLM.Route.CriticalHealth = 0
 BotPersonality.LLM.Route.LowMana = 0
 BotPersonality.LLM.Route.Inactivity = 0
+
+##################################################
+# BOT PERSONALITY MEMORY CONFIGURATION           #
+##################################################
+
+# Persistent long-term memory is scoped to one bot and one real player.
+BotPersonality.Memory.Enable = 1
+BotPersonality.Memory.DebugLogging = 0
+BotPersonality.Memory.EnableGameplayMemories = 1
+BotPersonality.Memory.EnableRelationshipMilestones = 1
+BotPersonality.Memory.EnableConversationSummaries = 1
+BotPersonality.Memory.EnablePlayerPreferences = 1
+
+BotPersonality.Memory.MinimumImportanceToPersist = 30
+BotPersonality.Memory.MinimumConfidenceToPersist = 60
+BotPersonality.Memory.MaxMemoriesPerRelationship = 100
+BotPersonality.Memory.MaxPinnedMemoriesPerRelationship = 20
+BotPersonality.Memory.MaxSummaryCharacters = 300
+BotPersonality.Memory.MaxSubjectKeyCharacters = 96
+
+BotPersonality.Memory.Cache.MaxRelationships = 10000
+BotPersonality.Memory.Cache.ExpiryMinutes = 30
+BotPersonality.Memory.SaveIntervalSeconds = 60
+
+# Conversation sessions are memory-only and contain bounded accepted turns.
+BotPersonality.Memory.Conversation.SessionTimeoutMinutes = 10
+BotPersonality.Memory.Conversation.MaxTurns = 20
+BotPersonality.Memory.Conversation.MaxCharacters = 5000
+BotPersonality.Memory.Conversation.MaxActiveSessions = 10000
+BotPersonality.Memory.Conversation.MinimumTurnsToSummarize = 4
+BotPersonality.Memory.Conversation.MinimumCharactersToSummarize = 120
+
+# Summary jobs use the configured Phase 6 endpoint at lower queue priority.
+BotPersonality.Memory.Summarization.EnableLlm = 1
+BotPersonality.Memory.Summarization.RequestTimeoutMs = 10000
+BotPersonality.Memory.Summarization.MaxQueueAgeSeconds = 60
+BotPersonality.Memory.Summarization.MaxPendingRequests = 50
+BotPersonality.Memory.Summarization.MaxTranscriptCharacters = 4000
+
+BotPersonality.Memory.Retrieval.MaxMemories = 6
+BotPersonality.Memory.Retrieval.MaxCharacters = 1200
+BotPersonality.Memory.Retrieval.MinimumScore = 30
+
+BotPersonality.Memory.Retention.ConversationDays = 60
+BotPersonality.Memory.Retention.MinorInteractionDays = 30
+BotPersonality.Memory.Retention.ConflictDays = 30
+BotPersonality.Memory.Retention.GameplayDays = 365
+BotPersonality.Memory.Retention.PreferenceDays = 0
+BotPersonality.Memory.Retention.MilestoneDays = 0
+
+# Raw chat is never persisted. Sensitive conversation summaries are rejected.
+BotPersonality.Memory.Privacy.StoreRawChat = 0
+BotPersonality.Memory.Privacy.StoreOffensiveText = 0
+BotPersonality.Memory.Privacy.StoreSensitiveData = 0
+
+BotPersonality.Memory.TemplateContext.Enable = 1
 
 # Force proactive chance to 100% for debugging.
 BotPersonality.ProactiveChat.ForceDialogueForDebug = 0

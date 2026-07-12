@@ -20,6 +20,8 @@ char const* BotLlmRequestTypeToString(BotLlmRequestType type)
             return "ProactiveSay";
         case BotLlmRequestType::DebugTest:
             return "DebugTest";
+        case BotLlmRequestType::MemorySummary:
+            return "MemorySummary";
     }
 
     return "ReactiveWhisper";

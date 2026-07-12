@@ -1,15 +1,18 @@
 #include "BotPersonalityMgr.h"
 
 #include "BotDialogueMgr.h"
+#include "BotConversationSessionMgr.h"
 #include "BotGameplayTracker.h"
 #include "BotLlmMgr.h"
 #include "BotMoodMgr.h"
+#include "BotMemoryMgr.h"
 #include "BotRelationshipMgr.h"
 #include "BotProactiveDialogueMgr.h"
 #include "Log.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "ScriptMgr.h"
+#include "Timer.h"
 #include "WorldScript.h"
 
 class BotPersonalityWorldScript : public WorldScript
@@ -35,6 +38,7 @@ public:
         sBotGameplayTracker.LoadConfig(false);
         sBotMoodMgr.LoadConfig(false);
         sBotProactiveDialogueMgr.LoadConfig(false);
+        sBotMemoryMgr.LoadConfig(false);
         sBotLlmMgr.LoadConfig(false);
     }
 
@@ -46,6 +50,7 @@ public:
         sBotGameplayTracker.LoadConfig(reload);
         sBotMoodMgr.LoadConfig(reload);
         sBotProactiveDialogueMgr.LoadConfig(reload);
+        sBotMemoryMgr.LoadConfig(reload);
         sBotLlmMgr.LoadConfig(reload);
     }
 
@@ -56,13 +61,18 @@ public:
         sBotGameplayTracker.Update(diff);
         sBotMoodMgr.Update(diff);
         sBotProactiveDialogueMgr.Update(diff);
+        sBotConversationSessionMgr.Update(getMSTime());
         sBotLlmMgr.Update(diff);
+        sBotMemoryMgr.Update(diff);
     }
 
     void OnShutdown() override
     {
-        sBotRelationshipMgr.OnShutdown();
+        sBotConversationSessionMgr.FlushEligible();
         sBotLlmMgr.Shutdown();
+        sBotMemoryMgr.OnShutdown();
+        sBotConversationSessionMgr.Clear();
+        sBotRelationshipMgr.OnShutdown();
         sBotMoodMgr.ClearCache();
         sBotProactiveDialogueMgr.ClearAll();
     }
@@ -92,12 +102,19 @@ public:
         if (player)
         {
             sBotRelationshipMgr.SaveRelationshipsForPlayer(player->GetGUID());
+            sBotConversationSessionMgr.OnPlayerLogout(
+                player->GetGUID().GetCounter());
             sBotProactiveDialogueMgr.OnPlayerLogout(player);
         }
     }
 
     void OnPlayerMapChanged(Player* player) override
     {
+        if (player)
+        {
+            sBotConversationSessionMgr.OnPlayerMapChanged(
+                player->GetGUID().GetCounter());
+        }
         sBotProactiveDialogueMgr.OnPlayerMapChanged(player);
     }
 };
@@ -123,6 +140,8 @@ public:
 
         sBotPersonalityMgr.RemoveQueuedLoginGeneration(player->GetGUID());
         sBotRelationshipMgr.SaveRelationshipsForPlayer(player->GetGUID());
+        sBotConversationSessionMgr.OnPlayerLogout(
+            player->GetGUID().GetCounter());
         sBotProactiveDialogueMgr.OnPlayerLogout(player);
     }
 };

@@ -3,6 +3,7 @@
 
 #include "BotChatIntent.h"
 #include "BotPersonality.h"
+#include "BotMemory.h"
 #include "BotRelationship.h"
 #include "Define.h"
 
@@ -23,6 +24,7 @@ struct BotDialogueContext
     BotPersonality personality;
     BotRelationship relationship;
     BotRelationshipLevel relationshipLevel = BotRelationshipLevel::Neutral;
+    BotMemoryTemplateContext memoryContext;
 
     bool hasExistingRelationship = false;
 

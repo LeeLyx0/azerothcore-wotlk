@@ -1,5 +1,6 @@
 #include "BotGameplayTracker.h"
 
+#include "BotMemoryMgr.h"
 #include "BotPersonalityMgr.h"
 #include "BotProactiveDialogueMgr.h"
 #include "BotRelationshipMgr.h"
@@ -797,6 +798,9 @@ void BotGameplayTracker::ApplyGameplayEvent(
             event,
             context);
     }
+
+    if (applyRelationship && !bypassAntiFarm)
+        sBotMemoryMgr.RecordGameplayEvent(bot, player, event, context);
 
     if (_debugLogging)
     {

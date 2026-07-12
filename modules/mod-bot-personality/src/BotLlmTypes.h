@@ -18,7 +18,8 @@ enum class BotLlmRequestType : uint8
     ProactiveParty,
     ProactiveRaid,
     ProactiveSay,
-    DebugTest
+    DebugTest,
+    MemorySummary
 };
 
 enum class BotLlmProviderMode : uint8
@@ -45,6 +46,13 @@ struct BotConversationTurn
     BotConversationSpeaker speaker = BotConversationSpeaker::Player;
     std::string text;
     uint32 timestampMs = 0;
+};
+
+struct BotMemoryPromptEntry
+{
+    uint64 memoryId = 0;
+    std::string summary;
+    uint8 confidence = 0;
 };
 
 struct BotLlmModelSettings
@@ -84,6 +92,9 @@ struct BotLlmRequest
     uint8 moodIntensity = 0;
 
     std::vector<BotConversationTurn> recentHistory;
+    std::vector<BotGameplayRecentEvent> recentGameplay;
+    std::vector<BotMemoryPromptEntry> relevantMemories;
+    uint64 memorySessionId = 0;
 
     std::string endpoint;
     std::string model;

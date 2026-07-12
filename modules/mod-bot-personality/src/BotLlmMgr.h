@@ -56,6 +56,14 @@ public:
         std::string const& message,
         bool send,
         uint64& requestId);
+    bool TryQueueMemorySummary(
+        uint64 sessionId,
+        uint32 botGuid,
+        uint32 playerGuid,
+        std::string botName,
+        std::string playerName,
+        std::vector<BotConversationTurn> turns);
+    uint32 GetMemorySummaryQueueDepth() const;
 
     std::optional<BotLlmPrompt> BuildPromptPreview(
         Player* bot,
@@ -152,11 +160,19 @@ private:
         Group* group,
         BotProactiveDialogueContext const& context,
         std::string const& fallbackResponse);
+    BotLlmRequest BuildMemorySummaryRequest(
+        uint64 sessionId,
+        uint32 botGuid,
+        uint32 playerGuid,
+        std::string botName,
+        std::string playerName,
+        std::vector<BotConversationTurn> turns);
 
     BotLlmResult ExecuteRequest(BotLlmRequest const& request);
     bool ExtractContent(std::string const& body, std::string& content) const;
     void ProcessResults(uint32 nowMs);
     void ProcessResult(BotLlmResult& result, uint32 nowMs);
+    void ProcessMemorySummaryResult(BotLlmResult& result, uint32 nowMs);
     bool SendDialogueResult(BotLlmResult& result, std::string response);
     bool SendProactiveResult(BotLlmResult& result, std::string response);
     bool SendFallback(BotLlmResult& result);
@@ -194,6 +210,7 @@ private:
     uint32 _lastCleanupMs = 0;
     uint64 _nextRequestId = 1;
     uint32 _inFlight = 0;
+    uint32 _inFlightMemorySummaries = 0;
     bool _stopping = false;
 
     std::deque<uint32> _globalRate;

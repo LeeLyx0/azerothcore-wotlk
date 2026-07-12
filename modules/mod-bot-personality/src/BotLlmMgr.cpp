@@ -1,10 +1,13 @@
 #include "BotLlmMgr.h"
 
 #include "BotConversationHistoryMgr.h"
+#include "BotConversationSessionMgr.h"
+#include "BotGameplayTracker.h"
 #include "BotLlmHttpClient.h"
 #include "BotLlmPromptBuilder.h"
 #include "BotLlmResponseValidator.h"
 #include "BotMoodMgr.h"
+#include "BotMemoryMgr.h"
 #include "BotPersonalityMgr.h"
 #include "BotProactiveTemplates.h"
 #include "BotRelationshipMgr.h"
@@ -17,11 +20,13 @@
 #include "ObjectAccessor.h"
 #include "ObjectGuid.h"
 #include "Player.h"
+#include "StringFormat.h"
 #include "Timer.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cstdlib>
 #include <iterator>
 #include <sstream>
@@ -134,6 +139,111 @@ bool DecodeJsonStringAt(
     }
 
     return false;
+}
+
+bool FindJsonValue(
+    std::string const& text,
+    std::string_view field,
+    std::size_t& valueOffset)
+{
+    std::string const key = Acore::StringFormat("\"{}\"", field);
+    std::size_t const offset = text.find(key);
+    if (offset == std::string::npos)
+        return false;
+    std::size_t const colon = text.find(':', offset + key.size());
+    if (colon == std::string::npos)
+        return false;
+    valueOffset = text.find_first_not_of(" \t\r\n", colon + 1);
+    return valueOffset != std::string::npos;
+}
+
+bool ExtractJsonStringField(
+    std::string const& text,
+    std::string_view field,
+    std::string& value)
+{
+    std::size_t offset = 0;
+    return FindJsonValue(text, field, offset) &&
+        offset < text.size() && text[offset] == '"' &&
+        DecodeJsonStringAt(text, offset, value);
+}
+
+bool ExtractJsonBoolField(
+    std::string const& text,
+    std::string_view field,
+    bool& value)
+{
+    std::size_t offset = 0;
+    if (!FindJsonValue(text, field, offset))
+        return false;
+    if (text.compare(offset, 4, "true") == 0)
+    {
+        value = true;
+        return true;
+    }
+    if (text.compare(offset, 5, "false") == 0)
+    {
+        value = false;
+        return true;
+    }
+    return false;
+}
+
+bool ExtractJsonIntField(
+    std::string const& text,
+    std::string_view field,
+    int32& value)
+{
+    std::size_t offset = 0;
+    if (!FindJsonValue(text, field, offset))
+        return false;
+    char const* begin = text.data() + offset;
+    char const* end = text.data() + text.size();
+    auto result = std::from_chars(begin, end, value);
+    return result.ec == std::errc() && result.ptr != begin;
+}
+
+bool IsConversationMemoryType(BotMemoryType type)
+{
+    switch (type)
+    {
+        case BotMemoryType::ConversationSummary:
+        case BotMemoryType::PlayerPreference:
+        case BotMemoryType::PlayerStatement:
+        case BotMemoryType::PositiveInteraction:
+        case BotMemoryType::NegativeInteraction:
+        case BotMemoryType::PersonalTopic:
+        case BotMemoryType::PromiseOrPlan:
+        case BotMemoryType::Conflict:
+        case BotMemoryType::Reconciliation:
+            return true;
+        default:
+            return false;
+    }
+}
+
+std::string CanonicalSummarySubject(
+    BotMemoryType type,
+    std::string const& suggested,
+    uint64 sessionId)
+{
+    std::string const lower = BotPersonalityToLower(suggested);
+    if (type == BotMemoryType::PlayerPreference)
+    {
+        if (lower.find("role") != std::string::npos)
+            return "player_preference:role";
+        return "player_preference:general";
+    }
+    if (type == BotMemoryType::Conflict)
+        return "conflict:recent";
+    if (type == BotMemoryType::Reconciliation)
+        return "reconciliation:recent";
+    if (type == BotMemoryType::PromiseOrPlan)
+        return "promise_or_plan:recent";
+    return Acore::StringFormat(
+        "conversation:{}:{}",
+        static_cast<uint32>(type),
+        sessionId);
 }
 }
 
@@ -476,6 +586,7 @@ void BotLlmMgr::Update(uint32 /*diff*/)
 void BotLlmMgr::Shutdown()
 {
     StopWorkers();
+    ProcessResults(getMSTime());
     ClearQueue();
 }
 
@@ -508,6 +619,7 @@ void BotLlmMgr::StopWorkers()
 
     std::lock_guard<std::mutex> lock(_mutex);
     _inFlight = 0;
+    _inFlightMemorySummaries = 0;
     _inFlightByBot.clear();
     _inFlightByPlayer.clear();
 }
@@ -648,6 +760,49 @@ bool BotLlmMgr::TryQueueProactive(
         context,
         fallbackResponse);
     return Enqueue(std::move(request));
+}
+
+bool BotLlmMgr::TryQueueMemorySummary(
+    uint64 sessionId,
+    uint32 botGuid,
+    uint32 playerGuid,
+    std::string botName,
+    std::string playerName,
+    std::vector<BotConversationTurn> turns)
+{
+    if (!_config.enable || _config.mode == BotLlmProviderMode::Template ||
+        !sBotMemoryMgr.IsLlmSummarizationEnabled() || turns.empty())
+        return false;
+
+    if (GetMemorySummaryQueueDepth() >=
+        sBotMemoryMgr.GetSummaryMaxPendingRequests())
+        return false;
+
+    BotLlmRequest request = BuildMemorySummaryRequest(
+        sessionId,
+        botGuid,
+        playerGuid,
+        std::move(botName),
+        std::move(playerName),
+        std::move(turns));
+    return Enqueue(std::move(request));
+}
+
+uint32 BotLlmMgr::GetMemorySummaryQueueDepth() const
+{
+    std::lock_guard<std::mutex> lock(_mutex);
+    uint32 count = _inFlightMemorySummaries;
+    for (BotLlmRequest const& request : _pending)
+    {
+        if (request.type == BotLlmRequestType::MemorySummary)
+            ++count;
+    }
+    for (BotLlmResult const& result : _completed)
+    {
+        if (result.request.type == BotLlmRequestType::MemorySummary)
+            ++count;
+    }
+    return count;
 }
 
 bool BotLlmMgr::QueueDebugWhisper(
@@ -819,6 +974,27 @@ BotLlmRequest BotLlmMgr::BuildDialogueRequest(
         request.botGuid,
         request.playerGuid,
         nowMs);
+    request.recentGameplay = sBotGameplayTracker.GetRecentEvents(
+        request.botGuid,
+        request.playerGuid,
+        3);
+    BotMemoryQuery memoryQuery;
+    memoryQuery.botGuid = request.botGuid;
+    memoryQuery.playerGuid = request.playerGuid;
+    memoryQuery.intent = context.intent;
+    memoryQuery.isWhisper = context.isWhisper;
+    memoryQuery.mapId = request.mapId;
+    memoryQuery.instanceId = request.instanceId;
+    for (BotMemorySelection const& selection :
+        sBotMemoryMgr.Retrieve(memoryQuery))
+    {
+        request.relevantMemories.push_back(
+            {
+                selection.memory.memoryId,
+                selection.memory.summary,
+                static_cast<uint8>(selection.memory.confidence)
+            });
+    }
     request.endpoint = _config.endpoint;
     request.model = _config.model;
     request.apiKey = _config.apiKey;
@@ -883,8 +1059,80 @@ BotLlmRequest BotLlmMgr::BuildProactiveRequest(
             request.botGuid,
             request.playerGuid,
             nowMs);
+        BotMemoryQuery memoryQuery;
+        memoryQuery.botGuid = request.botGuid;
+        memoryQuery.playerGuid = request.playerGuid;
+        memoryQuery.isProactive = true;
+        memoryQuery.hasProactiveEvent = true;
+        memoryQuery.proactiveEvent = context.event;
+        memoryQuery.mapId = request.mapId;
+        memoryQuery.instanceId = request.instanceId;
+        for (BotMemorySelection const& selection :
+            sBotMemoryMgr.Retrieve(memoryQuery))
+        {
+            request.relevantMemories.push_back(
+                {
+                    selection.memory.memoryId,
+                    selection.memory.summary,
+                    static_cast<uint8>(selection.memory.confidence)
+                });
+        }
     }
 
+    return request;
+}
+
+BotLlmRequest BotLlmMgr::BuildMemorySummaryRequest(
+    uint64 sessionId,
+    uint32 botGuid,
+    uint32 playerGuid,
+    std::string botName,
+    std::string playerName,
+    std::vector<BotConversationTurn> turns)
+{
+    uint32 const maximum =
+        sBotMemoryMgr.GetSummaryMaxTranscriptCharacters();
+    auto characters = [&turns]()
+    {
+        uint32 total = 0;
+        for (BotConversationTurn const& turn : turns)
+            total += static_cast<uint32>(turn.text.size());
+        return total;
+    };
+    while (!turns.empty() && characters() > maximum)
+        turns.erase(turns.begin());
+
+    uint32 const nowMs = getMSTime();
+    BotLlmRequest request;
+    request.requestId = _nextRequestId++;
+    request.type = BotLlmRequestType::MemorySummary;
+    request.memorySessionId = sessionId;
+    request.botGuid = botGuid;
+    request.playerGuid = playerGuid;
+    request.botName = std::move(botName);
+    request.playerName = std::move(playerName);
+    request.recentHistory = std::move(turns);
+    request.endpoint = _config.endpoint;
+    request.model = _config.model;
+    request.apiKey = _config.apiKey;
+    request.modelSettings = _config.modelSettings;
+    request.modelSettings.temperature = std::min(
+        request.modelSettings.temperature,
+        0.3f);
+    request.modelSettings.maxTokens = std::max<uint32>(
+        request.modelSettings.maxTokens,
+        160);
+    request.connectTimeoutMs = _config.connectTimeoutMs;
+    request.requestTimeoutMs = sBotMemoryMgr.GetSummaryRequestTimeoutMs();
+    request.maxPromptCharacters = std::max<uint32>(
+        _config.maxPromptCharacters,
+        maximum + 2000);
+    request.maxOutputCharacters = 1024;
+    request.maxOutputWords = 150;
+    request.createdAtMs = nowMs;
+    request.expiresAtMs = nowMs +
+        sBotMemoryMgr.GetSummaryMaxQueueAgeMs();
+    request.sendToPlayer = false;
     return request;
 }
 
@@ -899,7 +1147,8 @@ bool BotLlmMgr::Enqueue(BotLlmRequest request)
         return false;
     }
 
-    if (IsRateLimited(request, nowMs))
+    if (request.type != BotLlmRequestType::MemorySummary &&
+        IsRateLimited(request, nowMs))
     {
         ++_metrics.rejectedByRateLimit;
         return false;
@@ -913,6 +1162,9 @@ bool BotLlmMgr::Enqueue(BotLlmRequest request)
             0;
         for (BotLlmRequest const& pending : _pending)
         {
+            if (request.type != BotLlmRequestType::MemorySummary &&
+                pending.type == BotLlmRequestType::MemorySummary)
+                continue;
             if (pending.botGuid == request.botGuid)
                 ++pendingForBot;
             if (request.playerGuid && pending.playerGuid == request.playerGuid)
@@ -929,11 +1181,24 @@ bool BotLlmMgr::Enqueue(BotLlmRequest request)
             return false;
         }
 
-        _pending.push_back(request);
+        if (request.type == BotLlmRequestType::MemorySummary)
+            _pending.push_back(request);
+        else
+        {
+            auto firstSummary = std::find_if(
+                _pending.begin(),
+                _pending.end(),
+                [](BotLlmRequest const& pending)
+                {
+                    return pending.type == BotLlmRequestType::MemorySummary;
+                });
+            _pending.insert(firstSummary, request);
+        }
         ++_metrics.requestsQueued;
     }
 
-    RecordRate(request, nowMs);
+    if (request.type != BotLlmRequestType::MemorySummary)
+        RecordRate(request, nowMs);
     if (request.hasDialogueContext && !request.playerMessage.empty())
     {
         sBotConversationHistoryMgr.AddTurn(
@@ -966,9 +1231,14 @@ void BotLlmMgr::WorkerLoop()
             request = _pending.front();
             _pending.pop_front();
             ++_inFlight;
-            ++_inFlightByBot[request.botGuid];
-            if (request.playerGuid)
-                ++_inFlightByPlayer[request.playerGuid];
+            if (request.type == BotLlmRequestType::MemorySummary)
+                ++_inFlightMemorySummaries;
+            if (request.type != BotLlmRequestType::MemorySummary)
+            {
+                ++_inFlightByBot[request.botGuid];
+                if (request.playerGuid)
+                    ++_inFlightByPlayer[request.playerGuid];
+            }
         }
 
         BotLlmResult result = ExecuteRequest(request);
@@ -977,10 +1247,17 @@ void BotLlmMgr::WorkerLoop()
             std::lock_guard<std::mutex> lock(_mutex);
             if (_inFlight)
                 --_inFlight;
-            if (_inFlightByBot[request.botGuid])
-                --_inFlightByBot[request.botGuid];
-            if (request.playerGuid && _inFlightByPlayer[request.playerGuid])
-                --_inFlightByPlayer[request.playerGuid];
+            if (request.type == BotLlmRequestType::MemorySummary &&
+                _inFlightMemorySummaries)
+                --_inFlightMemorySummaries;
+            if (request.type != BotLlmRequestType::MemorySummary)
+            {
+                if (_inFlightByBot[request.botGuid])
+                    --_inFlightByBot[request.botGuid];
+                if (request.playerGuid &&
+                    _inFlightByPlayer[request.playerGuid])
+                    --_inFlightByPlayer[request.playerGuid];
+            }
 
             _completed.push_back(std::move(result));
             while (_completed.size() > _config.maxCompletedResults)
@@ -1025,6 +1302,18 @@ BotLlmResult BotLlmMgr::ExecuteRequest(BotLlmRequest const& request)
     if (!ExtractContent(httpResult.body, content))
     {
         result.error = "invalid json response";
+        return result;
+    }
+
+    if (request.type == BotLlmRequestType::MemorySummary)
+    {
+        if (content.empty() || content.size() > 2048)
+        {
+            result.error = "invalid memory summary json size";
+            return result;
+        }
+        result.success = true;
+        result.response = std::move(content);
         return result;
     }
 
@@ -1100,6 +1389,12 @@ void BotLlmMgr::ProcessResult(BotLlmResult& result, uint32 nowMs)
         return;
     }
 
+    if (result.request.type == BotLlmRequestType::MemorySummary)
+    {
+        ProcessMemorySummaryResult(result, nowMs);
+        return;
+    }
+
     if (result.success)
     {
         bool sent = false;
@@ -1112,7 +1407,9 @@ void BotLlmMgr::ProcessResult(BotLlmResult& result, uint32 nowMs)
         {
             ++_metrics.completedSuccessfully;
             NoteSuccess(result.latencyMs, nowMs);
-            if (result.request.playerGuid)
+            if (result.request.playerGuid &&
+                result.request.sendToPlayer &&
+                !result.request.debugOnly)
             {
                 sBotConversationHistoryMgr.AddTurn(
                     result.request.botGuid,
@@ -1120,6 +1417,16 @@ void BotLlmMgr::ProcessResult(BotLlmResult& result, uint32 nowMs)
                     BotConversationSpeaker::Bot,
                     result.response,
                     nowMs);
+                sBotConversationSessionMgr.AddBotTurn(
+                    result.request.botGuid,
+                    result.request.playerGuid,
+                    result.response,
+                    nowMs);
+                std::vector<uint64> recalled;
+                for (BotMemoryPromptEntry const& memory :
+                    result.request.relevantMemories)
+                    recalled.push_back(memory.memoryId);
+                sBotMemoryMgr.MarkRecalled(recalled);
             }
             return;
         }
@@ -1145,12 +1452,99 @@ void BotLlmMgr::ProcessResult(BotLlmResult& result, uint32 nowMs)
     if (SendFallback(result))
     {
         ++_metrics.templateFallbacks;
+        if (result.request.playerGuid)
+        {
+            sBotConversationSessionMgr.AddBotTurn(
+                result.request.botGuid,
+                result.request.playerGuid,
+                result.request.fallbackResponse,
+                nowMs);
+        }
         NoteFailure(nowMs);
         return;
     }
 
     ++_metrics.silentFailures;
     NoteFailure(nowMs);
+}
+
+void BotLlmMgr::ProcessMemorySummaryResult(
+    BotLlmResult& result,
+    uint32 nowMs)
+{
+    if (!result.success)
+    {
+        sBotMemoryMgr.NoteSummaryRejected();
+        NoteFailure(nowMs);
+        return;
+    }
+
+    bool shouldStore = false;
+    if (!ExtractJsonBoolField(
+            result.response, "should_store", shouldStore))
+    {
+        sBotMemoryMgr.NoteSummaryRejected();
+        NoteFailure(nowMs);
+        return;
+    }
+    if (!shouldStore)
+    {
+        sBotMemoryMgr.NoteSummaryCompleted();
+        NoteSuccess(result.latencyMs, nowMs);
+        return;
+    }
+
+    std::string typeText;
+    std::string summary;
+    std::string subjectKey;
+    int32 importance = 0;
+    int32 confidence = 0;
+    bool negative = false;
+    if (!ExtractJsonStringField(result.response, "memory_type", typeText) ||
+        !ExtractJsonStringField(result.response, "summary", summary) ||
+        !ExtractJsonStringField(
+            result.response, "subject_key", subjectKey) ||
+        !ExtractJsonIntField(result.response, "importance", importance) ||
+        !ExtractJsonIntField(result.response, "confidence", confidence) ||
+        !ExtractJsonBoolField(result.response, "negative", negative))
+    {
+        sBotMemoryMgr.NoteSummaryRejected();
+        NoteFailure(nowMs);
+        return;
+    }
+
+    BotMemoryType type;
+    if (!BotMemoryTypeFromString(typeText, type) ||
+        !IsConversationMemoryType(type))
+    {
+        sBotMemoryMgr.NoteSummaryRejected();
+        NoteFailure(nowMs);
+        return;
+    }
+
+    BotMemoryCandidate candidate;
+    candidate.botGuid = result.request.botGuid;
+    candidate.playerGuid = result.request.playerGuid;
+    candidate.suggestedType = type;
+    candidate.source = BotMemorySource::LlmSummarizedConversation;
+    candidate.deterministicSummary = std::move(summary);
+    candidate.subjectKey = CanonicalSummarySubject(
+        type,
+        subjectKey,
+        result.request.memorySessionId);
+    candidate.importance = std::clamp(importance, 0, 70);
+    candidate.confidence = std::clamp(confidence, 0, 80);
+    candidate.sourceReference = result.request.memorySessionId;
+    candidate.negative = negative;
+    if (!sBotMemoryMgr.StoreCandidate(std::move(candidate)))
+    {
+        sBotMemoryMgr.NoteSummaryRejected();
+        NoteFailure(nowMs);
+        return;
+    }
+
+    sBotMemoryMgr.NoteSummaryCompleted();
+    NoteSuccess(result.latencyMs, nowMs);
 }
 
 bool BotLlmMgr::SendDialogueResult(

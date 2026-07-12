@@ -1,5 +1,6 @@
 #include "BotRelationshipMgr.h"
 
+#include "BotMemoryMgr.h"
 #include "BotPersonalityMgr.h"
 #include "Config.h"
 #include "DatabaseEnv.h"
@@ -529,6 +530,12 @@ bool BotRelationshipMgr::ApplyEvent(
                 RelationshipLevelToString(newLevel));
         }
 
+        sBotMemoryMgr.RecordRelationshipMilestone(
+            bot,
+            player,
+            oldLevel,
+            newLevel);
+
         SaveRelationship(*entry);
     }
 
@@ -622,6 +629,12 @@ bool BotRelationshipMgr::ApplyGameplayEvent(
                 RelationshipLevelToString(oldLevel),
                 RelationshipLevelToString(newLevel));
         }
+
+        sBotMemoryMgr.RecordRelationshipMilestone(
+            bot,
+            player,
+            oldLevel,
+            newLevel);
 
         SaveRelationship(*entry);
     }
