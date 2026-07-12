@@ -433,6 +433,13 @@ std::string BotLlmPromptBuilder::BuildSystemMessage(
     if (std::string const recentGameplay = RecentGameplayText(request);
         !recentGameplay.empty())
         out << recentGameplay << "\n";
+    if (!request.verifiedActiveQuests.empty())
+    {
+        out << "Verified active quests for this bot character:";
+        for (std::string const& quest : request.verifiedActiveQuests)
+            out << "\n- " << quest;
+        out << "\n";
+    }
 
     if (!request.relevantMemories.empty())
     {

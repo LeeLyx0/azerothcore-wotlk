@@ -512,7 +512,8 @@ bool BotDialogueMgr::HandleIncomingGroupChat(
         sender->GetGUID().GetCounter());
     bool continuedConversation = false;
     auto recentSpeaker = _recentGroupSpeakers.find(conversationKey);
-    if (recentSpeaker != _recentGroupSpeakers.end() &&
+    if (_config.groupSpeakerTimeoutMs &&
+        recentSpeaker != _recentGroupSpeakers.end() &&
         getMSTimeDiff(recentSpeaker->second.lastActivityMs, nowMs) <=
             _config.groupSpeakerTimeoutMs)
     {

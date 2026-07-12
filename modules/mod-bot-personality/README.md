@@ -108,6 +108,8 @@ Phase 2 chat options:
 - `BotPersonality.Chat.DuplicateWindowMs`: duplicate-message suppression
   window.
 - `BotPersonality.Chat.MaxResponsesPerMinute`: rolling per-bot rate limit.
+- `BotPersonality.Chat.GroupConversationSpeakerTimeoutSeconds`: keeps one bot
+  as the speaker during short party/raid follow-up exchanges.
 - `BotPersonality.Chat.MaxInputLength`: maximum processed chat length.
 - `BotPersonality.Chat.MaxOutputLength`: maximum generated reply length.
 - `BotPersonality.Chat.MinimumGreetingChance`: minimum greeting chance.
@@ -791,6 +793,23 @@ Playerbots command prefix, command separator, chat target prefixes, `reset`,
 `logout`, `debug`, `do`, and item-link auto-trade detection. If Playerbots
 recognizes a whisper or group message as a command, personality chat remains
 silent and allows Playerbots to handle it normally.
+
+## Immersive Playerbots Notifications
+
+`BotPersonality.Immersion.SuppressAutomatedPlayerbotWhispers = 1` suppresses
+ownerless `mod-playerbots` status whispers for quest objective progress,
+consumable and item use, automatic equipment changes, and spirit release.
+The actions still happen normally; only their unsolicited master whisper is
+removed. If a real player explicitly triggers an item, equipment, or release
+action through a Playerbots command, the event retains the player owner and
+command feedback remains available.
+
+Reactive group chat retains the most recent bot speaker for the configured
+conversation window. This keeps a follow-up such as "what do you mean?"
+attached to the bot whose prior reply introduced the topic. Quest questions
+receive a bounded list of that bot's verified active quest titles. Other
+unverified inventory, health, location, and plan claims are forbidden by the
+LLM prompt.
 
 ## Cooldowns And Spam Control
 

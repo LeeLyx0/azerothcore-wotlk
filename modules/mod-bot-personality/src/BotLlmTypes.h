@@ -93,6 +93,7 @@ struct BotLlmRequest
 
     std::vector<BotConversationTurn> recentHistory;
     std::vector<BotGameplayRecentEvent> recentGameplay;
+    std::vector<std::string> verifiedActiveQuests;
     std::vector<BotMemoryPromptEntry> relevantMemories;
     uint64 memorySessionId = 0;
 

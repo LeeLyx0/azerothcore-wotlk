@@ -19,6 +19,7 @@
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "ObjectGuid.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "StringFormat.h"
 #include "Timer.h"
@@ -978,6 +979,22 @@ BotLlmRequest BotLlmMgr::BuildDialogueRequest(
         request.botGuid,
         request.playerGuid,
         3);
+    std::string const normalizedMessage = BotPersonalityToLower(
+        context.originalMessage);
+    if (bot && normalizedMessage.find("quest") != std::string::npos)
+    {
+        for (uint16 slot = 0;
+            slot < MAX_QUEST_LOG_SIZE &&
+                request.verifiedActiveQuests.size() < 5;
+            ++slot)
+        {
+            uint32 const questId = bot->GetQuestSlotQuestId(slot);
+            if (!questId)
+                continue;
+            if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
+                request.verifiedActiveQuests.push_back(quest->GetTitle());
+        }
+    }
     BotMemoryQuery memoryQuery;
     memoryQuery.botGuid = request.botGuid;
     memoryQuery.playerGuid = request.playerGuid;

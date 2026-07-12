@@ -18,6 +18,11 @@ BotPersonality.SaveGenerated = 1
 # Default: 0
 BotPersonality.DebugLogging = 0
 
+# Suppress autonomous mod-playerbots status whispers such as quest progress,
+# consumable use, equipment changes, and spirit release. Feedback from actions
+# explicitly requested by a real player remains available.
+BotPersonality.Immersion.SuppressAutomatedPlayerbotWhispers = 1
+
 # Maximum deterministic random variation applied to each trait.
 # Valid range: 0-40
 # Default: 15
